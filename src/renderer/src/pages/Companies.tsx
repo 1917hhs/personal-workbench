@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, uid, useApp, ymd } from '../lib'
+import { api, errMsg, uid, useApp, ymd } from '../lib'
 import { ask, Empty, Tabs } from '../ui'
 
 // 单位库：业主、供应商、设计咨询、施工单位……都是「单位」，联系人绑定到单位。
@@ -381,7 +381,7 @@ export default function Companies({ focusId }: { focusId?: string }) {
 
 function CompanyPanel({ c, onClose }: { c: any; onClose: () => void }) {
   const sup = useSup()
-  const { data, saveItem, deleteItem, go } = useApp()
+  const { data, saveItem, deleteItem, go, toast } = useApp()
   const [tab, setTab] = useState<'overview' | 'info' | 'contacts' | 'docs' | 'exp' | 'inq'>('overview')
   const [openSub, setOpenSub] = useState<string | null>(null)
   const save = (patch: any) => saveItem('companies', { ...c, ...patch })
@@ -430,9 +430,22 @@ function CompanyPanel({ c, onClose }: { c: any; onClose: () => void }) {
       )}
     </div>
   )
-  const attach = async (key: 'docs' | 'experience', row: any) => {
-    const fs: string[] = await api.call('dialog:pickFiles', '选择附件')
-    if (fs.length) setSub(key, sub(key).map((x: any) => (x.id === row.id ? { ...x, files: [...new Set([...(x.files || []), ...fs])] } : x)))
+  // 附件复制到「供应商与联系人/<单位名>/入库资料|项目经验」统一存放
+  const addFiles = async (key: 'docs' | 'experience', row: any, paths: string[]) => {
+    if (!paths.length) return
+    try {
+      const fs: string[] = await api.call('company:storeFiles', c.name, key, paths)
+      if (fs.length) setSub(key, sub(key).map((x: any) => (x.id === row.id ? { ...x, files: [...new Set([...(x.files || []), ...fs])] } : x)))
+    } catch (e) {
+      toast(errMsg(e))
+    }
+  }
+  const attach = async (key: 'docs' | 'experience', row: any) => addFiles(key, row, await api.call('dialog:pickFiles', '选择附件'))
+  // 删除附件：放在单位文件夹里的移到回收站，别处的原文件只取消关联
+  const removeFile = async (key: 'docs' | 'experience', row: any, f: string) => {
+    if (!confirm(`删除附件「${f.split(/[\\/]/).pop()}」？放在单位文件夹里的文件会移到回收站。`)) return
+    await api.call('inquiry:trashFiles', [f]).catch(() => 0)
+    setSub(key, sub(key).map((x: any) => (x.id === row.id ? { ...x, files: (x.files || []).filter((y: string) => y !== f) } : x)))
   }
   const docState = (d: any) => (!d.expireDate ? '' : d.expireDate < ymd() ? '已过期' : d.expireDate <= ymd(new Date(Date.now() + 60 * 86400000)) ? '即将到期' : '有效')
 
@@ -452,6 +465,7 @@ function CompanyPanel({ c, onClose }: { c: any; onClose: () => void }) {
               {c.grade && <span className="grade" style={{ color: gradeColor(c.grade), borderColor: gradeColor(c.grade) }}>{c.grade === '待评价' ? '待评价' : c.grade}</span>}
             </div>
           </div>
+          <button className="btn small" title="打开这个单位的附件文件夹（入库资料、项目经验）" onClick={() => api.call('company:openFolder', c.name).catch((e: any) => toast(errMsg(e)))}>📂 文件夹</button>
           <button className="icon-btn" onClick={onClose}>×</button>
         </div>
         <div style={{ marginTop: 10 }}>
@@ -677,7 +691,7 @@ function CompanyPanel({ c, onClose }: { c: any; onClose: () => void }) {
                   {subField('docs', d, 'verify', '核实状态', 'text', sup.verify)}
                   {subField('docs', d, 'note', '备注')}
                 </div>
-                <Files files={d.files} onDropPaths={(ps) => setSub('docs', sub('docs').map((y: any) => (y.id === d.id ? { ...y, files: [...new Set([...(y.files || []), ...ps])] } : y)))} onAdd={() => attach('docs', d)} onRemove={(f) => setSub('docs', sub('docs').map((x: any) => (x.id === d.id ? { ...x, files: x.files.filter((y: string) => y !== f) } : x)))} />
+                <Files files={d.files} onDropPaths={(ps) => addFiles('docs', d, ps)} onAdd={() => attach('docs', d)} onRemove={(f) => removeFile('docs', d, f)} />
                 <div className="row" style={{ justifyContent: 'flex-end' }}>
                   <button className="btn small danger" onClick={() => confirm('删除这条资料？') && setSub('docs', sub('docs').filter((x: any) => x.id !== d.id))}>删除</button>
                   <button className="btn small" onClick={() => setOpenSub(null)}>收起</button>
@@ -733,7 +747,7 @@ function CompanyPanel({ c, onClose }: { c: any; onClose: () => void }) {
                   {subField('experience', x, 'start', '开始日期', 'date')}
                   {subField('experience', x, 'end', '结束日期', 'date')}
                 </div>
-                <Files files={x.files} onDropPaths={(ps) => setSub('experience', sub('experience').map((y: any) => (y.id === x.id ? { ...y, files: [...new Set([...(y.files || []), ...ps])] } : y)))} onAdd={() => attach('experience', x)} onRemove={(f) => setSub('experience', sub('experience').map((y: any) => (y.id === x.id ? { ...y, files: y.files.filter((z: string) => z !== f) } : y)))} />
+                <Files files={x.files} onDropPaths={(ps) => addFiles('experience', x, ps)} onAdd={() => attach('experience', x)} onRemove={(f) => removeFile('experience', x, f)} />
                 <div className="row" style={{ justifyContent: 'flex-end' }}>
                   <button className="btn small danger" onClick={() => confirm('删除这条项目经验？') && setSub('experience', sub('experience').filter((y: any) => y.id !== x.id))}>删除</button>
                   <button className="btn small" onClick={() => setOpenSub(null)}>收起</button>

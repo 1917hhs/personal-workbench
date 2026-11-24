@@ -173,6 +173,7 @@ export interface AppData {
   libraryDir: string
   root: string
   backupDir: string
+  companyDir: string
   migratedFrom: string | null
   dataDir: string
   version: string

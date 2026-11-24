@@ -130,7 +130,7 @@ export default function App() {
           {navBtn('todos', '待办', todoCount)}
           {navBtn('kb', '备忘录')}
           {navBtn('library', '资料库', ctx.data.library.length)}
-          {navBtn('contacts', '通讯录与单位', ctx.data.contacts.length)}
+          {navBtn('contacts', '供应商与联系人', ctx.data.contacts.length)}
           {navBtn('inquiries', '询价', ctx.data.inquiries.filter((x) => ['编制中', '询价中', '比价中'].includes(x.status)).length)}
           {navBtn('map', '地图')}
           {navBtn('flows', '流程', ctx.data.flows?.length)}

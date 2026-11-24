@@ -64,9 +64,86 @@ export function storeInquiryFiles(store: Store, inquiry: { projectId?: string | 
   return out
 }
 
-/** 询价 / 回价文件统一存放的文件夹（项目里的「03 询价文件」「04 回价与比价」，资料库里的「询价文件」「回价文件」） */
+/**
+ * 单位的附件「上传」：复制到「供应商与联系人/<单位名>/入库资料|项目经验」，返回复制后的路径。
+ * 已经在这个单位文件夹里的文件不再复制。
+ */
+export function storeCompanyFiles(store: Store, companyName: string, kind: 'docs' | 'experience', paths: string[]) {
+  const dir = path.join(store.companyDir, clean(companyName), kind === 'docs' ? '入库资料' : '项目经验')
+  const coRoot = path.resolve(store.companyDir, clean(companyName)).toLowerCase() + path.sep
+  const out: string[] = []
+  for (const src of paths || []) {
+    if (!src || !fs.existsSync(src) || !fs.statSync(src).isFile()) continue
+    if (path.resolve(src).toLowerCase().startsWith(coRoot)) {
+      out.push(src)
+      continue
+    }
+    fs.mkdirSync(dir, { recursive: true })
+    const base = path.basename(src)
+    const ext = path.extname(base)
+    const target = uniqueTarget(dir, ext && ext.length < base.length ? clean(base.slice(0, -ext.length)) + ext : clean(base))
+    fs.copyFileSync(src, target)
+    out.push(target)
+  }
+  return out
+}
+
+/**
+ * 旧数据迁移：从飞书导入的供应商附件原来放在「资料库/供应商资料/<单位>」，
+ * 现在搬到「供应商与联系人/<单位>」（单位文件夹名去掉末尾的点），并改掉单位里记的路径。
+ */
+export function migrateCompanyFiles(store: Store) {
+  const old = path.join(store.libraryDir, '供应商资料')
+  if (!fs.existsSync(old)) return 0
+  // 注意：土耳其字母「İ」转小写会变成两个字符，所以只用小写来比较，截取路径时用原来的写法
+  const moves: { from: string; low: string; to: string }[] = []
+  fs.mkdirSync(store.companyDir, { recursive: true })
+  for (const e of fs.readdirSync(old, { withFileTypes: true })) {
+    const from = path.resolve(old, e.name)
+    const to = path.join(store.companyDir, e.isDirectory() ? clean(e.name) : e.name)
+    if (fs.existsSync(to)) {
+      fs.cpSync(from, to, { recursive: true, force: false, errorOnExist: false })
+      fs.rmSync(from, { recursive: true, force: true })
+    } else fs.renameSync(from, to)
+    moves.push({ from, low: from.toLowerCase(), to })
+  }
+  const fix = (p: string) => {
+    if (typeof p !== 'string') return p
+    const abs = path.resolve(p)
+    const low = abs.toLowerCase()
+    for (const m of moves) if (low === m.low || low.startsWith(m.low + path.sep)) return m.to + abs.slice(m.from.length)
+    return p
+  }
+  // 从飞书导入时留下的「飞书附件 → 本地文件」对照表，跟着附件一起搬，路径也改过去
+  const idx = path.join(store.libraryDir, 'attachments.json')
+  if (fs.existsSync(idx)) {
+    try {
+      const j = JSON.parse(fs.readFileSync(idx, 'utf8'))
+      for (const k of Object.keys(j)) if (typeof j[k] === 'string') j[k] = fix(j[k])
+      fs.writeFileSync(path.join(store.companyDir, '飞书附件对照表.json'), JSON.stringify(j, null, 2))
+      fs.rmSync(idx)
+    } catch (e) {
+      console.error('搬飞书附件对照表失败', e)
+    }
+  }
+  let n = 0
+  store.companies = store.companies.map((c) => {
+    const rows = (k: string) =>
+      (c[k] || []).map((r: any) => {
+        const files = (r.files || []).map(fix)
+        n += files.filter((f: string, i: number) => f !== r.files[i]).length
+        return { ...r, files }
+      })
+    return { ...c, docs: rows('docs'), experience: rows('experience') }
+  })
+  store.save('companies')
+  if (!fs.readdirSync(old).length) fs.rmdirSync(old)
+  return n
+}
+
+/** 询价 / 回价文件统一存放的文件夹（项目里的「03 询价文件」「04 回价与比价」，资料库里的「询价文件」「回价文件」），以及单位附件文件夹 */
 function managedRoots(store: Store) {
-  const roots = [path.join(store.libraryDir, '询价文件'), path.join(store.libraryDir, '回价文件')]
+  const roots = [path.join(store.libraryDir, '询价文件'), path.join(store.libraryDir, '回价文件'), store.companyDir]
   for (const p of store.projects) {
     if (!p.rootPath || !fs.existsSync(p.rootPath)) continue
     for (const d of fs.readdirSync(p.rootPath, { withFileTypes: true })) if (d.isDirectory() && /询价文件|回价/.test(d.name)) roots.push(path.join(p.rootPath, d.name))

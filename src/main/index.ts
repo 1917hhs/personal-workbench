@@ -3,7 +3,7 @@ import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { Store } from './store'
 import { registerIpc } from './ipc'
-import { repairInquiryPaths } from './procure'
+import { migrateCompanyFiles, repairInquiryPaths } from './procure'
 import { mediaAbs } from './memo'
 
 // lf://file/?p=<绝对路径>：让界面能显示本地图片、PDF、视频
@@ -67,6 +67,11 @@ app.whenReady().then(() => {
     repairInquiryPaths(store)
   } catch (e) {
     console.error(e)
+  }
+  try {
+    migrateCompanyFiles(store)
+  } catch (e) {
+    console.error('迁移供应商附件失败', e)
   }
   registerIpc(store, () => win)
   createWindow()

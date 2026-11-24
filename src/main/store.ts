@@ -129,7 +129,7 @@ export const DATA_FILES = [...KINDS.map((k) => k + '.json'), 'ai-log.json', 'pro
 export const DATA_DIRS = ['meta', 'kb', 'diary', 'ai-backup']
 
 /** 工作台根目录下的子文件夹 */
-export const SUB = { data: '数据', library: '资料库', projects: '项目', backup: '备份' }
+export const SUB = { data: '数据', library: '资料库', projects: '项目', backup: '备份', companies: '供应商与联系人' }
 
 /** 默认根目录：有 D 盘就放 D:\个人工作台，否则放「文档\个人工作台」。不放安装目录，升级、卸载会清空那里 */
 function defaultRoot() {
@@ -305,6 +305,11 @@ export class Store {
     return this.settings.libraryDir || path.join(this.root, SUB.library)
   }
 
+  /** 供应商与联系人：每个单位一个子文件夹，放入库资料、项目经验等附件 */
+  get companyDir() {
+    return path.join(this.root, SUB.companies)
+  }
+
   /**
    * 换工作台根目录：把 数据 / 资料库 / 项目 / 备份 四个子文件夹复制到新位置（旧位置保留），
    * 放在旧根目录「项目」下的项目文件夹，路径一并改过去。
@@ -316,7 +321,7 @@ export class Store {
     if (inside(newRoot)) throw new Error('新位置不能放在当前根目录里面')
     fs.mkdirSync(newRoot, { recursive: true })
     copyDataItems(path.join(old, SUB.data), path.join(newRoot, SUB.data))
-    for (const d of [SUB.library, SUB.projects, SUB.backup]) {
+    for (const d of [SUB.library, SUB.projects, SUB.backup, SUB.companies]) {
       const s = path.join(old, d)
       if (fs.existsSync(s)) await fs.promises.cp(s, path.join(newRoot, d), { recursive: true, force: false, errorOnExist: false })
     }
@@ -328,6 +333,10 @@ export class Store {
     const swap = (p: string) => (p && inside(p) ? path.join(newRoot, path.relative(old, p)) : p)
     this.projects = this.projects.map((p) => ({ ...p, rootPath: swap(p.rootPath) }))
     this.save('projects')
+    // 单位的入库资料、项目经验附件路径跟着换
+    const swapFiles = (rows: any[]) => (rows || []).map((r: any) => ({ ...r, files: (r.files || []).map(swap) }))
+    this.companies = this.companies.map((c) => ({ ...c, docs: swapFiles(c.docs), experience: swapFiles(c.experience) }))
+    this.save('companies')
     if (this.settings.projectsRoot && (inside(this.settings.projectsRoot) || path.resolve(this.settings.projectsRoot) === path.resolve(old, SUB.projects))) {
       this.settings.projectsRoot = swap(this.settings.projectsRoot)
     }

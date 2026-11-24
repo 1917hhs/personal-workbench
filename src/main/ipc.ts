@@ -5,7 +5,7 @@ import chokidar from 'chokidar'
 import * as XLSX from 'xlsx'
 import type { Kind, Store } from './store'
 import { importPaths, previewData, safeJoin } from './files'
-import { storeInquiryFiles, trashInquiryFiles } from './procure'
+import { clean as cleanName, storeCompanyFiles, storeInquiryFiles, trashInquiryFiles } from './procure'
 import { applyLibraryScan, importToLibrary, libAbs, moveLibraryDir, scanLibrary } from './library'
 import { listHistory, listPages, purgePage, readVersion, savePage } from './kb'
 import { exportPack, importPack, packInfo } from './pack'
@@ -35,6 +35,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     libraryDir: store.libraryDir,
     dataDir: store.dataDir,
     root: store.root,
+    companyDir: store.companyDir,
     backupDir: store.backupDir,
     migratedFrom: store.migratedFrom,
     cards: store.cards,
@@ -120,6 +121,12 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   // ---------- 询价：导出比价表 ----------
   // 询价文件 / 回价文件「上传」：复制进项目文件夹（见 procure.ts）
   h('inquiry:trashFiles', (paths: string[]) => trashInquiryFiles(store, paths))
+  h('company:storeFiles', (name: string, kind: 'docs' | 'experience', paths: string[]) => storeCompanyFiles(store, name, kind, paths))
+  h('company:openFolder', (name: string) => {
+    const dir = path.join(store.companyDir, cleanName(name))
+    fs.mkdirSync(dir, { recursive: true })
+    return shell.openPath(dir)
+  })
   h('inquiry:storeFiles', (inquiry: { projectId?: string; name: string }, kind: 'version' | 'quote', sub: string, paths: string[]) =>
     storeInquiryFiles(store, inquiry, kind, sub, paths)
   )

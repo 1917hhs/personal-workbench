@@ -72,7 +72,7 @@ export default function Contacts({ focusId, companyId }: { focusId?: string; com
   return (
     <>
       <div className="topbar">
-        <h1>通讯录与单位</h1>
+        <h1>供应商与联系人</h1>
         <Tabs value={tab} onChange={setTab} options={[{ id: 'people', label: '联系人' }, { id: 'units', label: '单位与供应商' }]} />
       </div>
       <div className="main" style={{ flex: 1, minHeight: 0 }}>
