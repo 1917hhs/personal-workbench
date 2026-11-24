@@ -157,6 +157,24 @@ export function importPaths(destDir: string, paths: string[], mode: 'move' | 'co
 
 const TEXT_EXT = ['txt', 'md', 'csv', 'json', 'xml', 'log', 'ini', 'yaml', 'yml', 'geojson', 'kml', 'py', 'js', 'ts', 'bat', 'ps1']
 
+/** 文本解码：先按 UTF-8；不是合法 UTF-8 的（国内很多 txt / csv 是 GBK）改按 GBK，避免乱码 */
+export function decodeText(buf: Buffer) {
+  if (buf[0] === 0xff && buf[1] === 0xfe) return new TextDecoder('utf-16le').decode(buf)
+  // 预览只读了文件开头，末尾可能断在一个多字节字符中间：允许去掉最后 0~3 个字节再判断
+  const strict = new TextDecoder('utf-8', { fatal: true })
+  for (let cut = 0; cut <= 3 && cut < buf.length; cut++) {
+    try {
+      strict.decode(buf.subarray(0, buf.length - cut))
+      return new TextDecoder('utf-8').decode(buf).replace(/^﻿/, '')
+    } catch {}
+  }
+  try {
+    return new TextDecoder('gbk').decode(buf)
+  } catch {
+    return buf.toString('utf8')
+  }
+}
+
 export function fileUrl(abs: string) {
   return 'lf://file/?p=' + encodeURIComponent(abs)
 }
@@ -185,7 +203,7 @@ export async function previewData(abs: string) {
     const buf = Buffer.alloc(Math.min(fs.fstatSync(fd).size, 300 * 1024))
     fs.readSync(fd, buf, 0, buf.length, 0)
     fs.closeSync(fd)
-    return { kind: 'text', text: buf.toString('utf8') }
+    return { kind: 'text', text: decodeText(buf) }
   }
   return { kind: 'none' }
 }

@@ -62,12 +62,11 @@ export const stripHtml = (h: string) =>
 
 export function searchAll(store: Store, query: string) {
   const q = (query || '').trim().toLowerCase()
-  if (!q) return { projects: [], todos: [], files: [], notes: [], contacts: [], reviews: [], library: [], pages: [], flows: [] }
+  if (!q) return { projects: [], todos: [], files: [], notes: [], contacts: [], library: [], pages: [], flows: [] }
   const has = (s: any) => String(s || '').toLowerCase().includes(q)
   const projects = store.projects.filter((p) => has(p.name) || has(p.code) || has(p.client) || has(p.location) || has(p.description)).slice(0, 10)
-  const todos = store.todos.filter((t) => has(t.title)).slice(0, 10)
+  const todos = store.todos.filter((t) => has(t.title) || has(t.note)).slice(0, 10)
   const contacts = store.contacts.filter((c) => has(c.name) || has(c.org) || has(c.title) || has(c.phone) || (c.tags || []).some(has)).slice(0, 10)
-  const reviews = store.reviews.filter((r) => has(r.type) || has(r.conclusion) || has(r.title)).slice(0, 10)
   const files: any[] = []
   const notes: any[] = []
   for (const p of store.projects) {
@@ -98,5 +97,5 @@ export function searchAll(store: Store, query: string) {
       const i = text.toLowerCase().indexOf(q)
       return { id: f.id, name: f.name || '未命名流程', snippet: i >= 0 ? text.slice(Math.max(0, i - 15), i + 40).trim() : '' }
     })
-  return { projects, todos, files, notes: notes.slice(0, 20), contacts, reviews, library, pages, flows }
+  return { projects, todos, files, notes: notes.slice(0, 20), contacts, library, pages, flows }
 }

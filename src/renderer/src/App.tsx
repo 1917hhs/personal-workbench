@@ -23,7 +23,11 @@ export default function App() {
   const toastTimer = useRef<any>(null)
 
   useEffect(() => {
-    api.call('app:init').then(setDataState)
+    api.call('app:init').then((d: AppData) => {
+      setDataState(d)
+      // 数据文件损坏：已经另存了一份，提醒用户去「数据」文件夹里找
+      if (d.loadProblems?.length) setTimeout(() => alert('读取数据时发现问题：\n\n' + d.loadProblems.join('\n') + `\n\n损坏的文件在：${d.dataDir}\n可以用网盘里的历史版本替换后重启软件。`), 300)
+    })
   }, [])
 
   // AI 助手通过 MCP 改了数据：刷新界面并提示
@@ -51,10 +55,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', k)
   }, [])
 
-  const toast = useCallback((m: string) => {
+  const [toastAct, setToastAct] = useState<{ label: string; run: () => void } | null>(null)
+  const toast = useCallback((m: string, action?: { label: string; run: () => void }) => {
     setToastMsg(m)
+    setToastAct(action || null)
     clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setToastMsg(''), 3200)
+    toastTimer.current = setTimeout(() => (setToastMsg(''), setToastAct(null)), action ? 6000 : 3200)
   }, [])
 
   const setData = useCallback((patch: Partial<AppData>) => setDataState((d) => ({ ...d!, ...patch })), [])
@@ -77,7 +83,12 @@ export default function App() {
       toast,
       saveProject: (p) => wrap(async () => setData({ projects: await api.call('projects:save', p) })),
       saveTodo: (t) => wrap(async () => setData({ todos: await api.call('todos:save', t) })),
-      deleteTodo: (id) => wrap(async () => setData({ todos: await api.call('todos:delete', id) })),
+      deleteTodo: (id) =>
+        wrap(async () => {
+          const old = data.todos.find((t) => t.id === id)
+          setData({ todos: await api.call('todos:delete', id) })
+          if (old) toast(`已删除待办「${old.title}」`, { label: '撤销', run: async () => setData({ todos: await api.call('todos:save', old) }) })
+        }),
       saveSettings: (s) => wrap(async () => setData({ settings: await api.call('settings:save', s) })),
       saveContact: (c) => wrap(async () => setData({ contacts: await api.call('contacts:save', c) })),
       saveItem: async (kind, x) => {
@@ -91,8 +102,6 @@ export default function App() {
         }
       },
       deleteItem: (kind, id) => wrap(async () => setData(await api.call(`${kind}:delete`, id))),
-      saveReview: (r) => wrap(async () => setData({ reviews: await api.call('reviews:save', r) })),
-      deleteReview: (id) => wrap(async () => setData({ reviews: await api.call('reviews:delete', id) }))
     }
   }, [data, nav, setData, toast])
 
@@ -164,7 +173,23 @@ export default function App() {
       </div>
       {searchOpen && <SearchDialog onClose={() => setSearchOpen(false)} />}
       <AskHost />
-      {toastMsg && <div className="toast">{toastMsg}</div>}
+      {toastMsg && (
+        <div className="toast">
+          {toastMsg}
+          {toastAct && (
+            <button
+              className="toast-act"
+              onClick={() => {
+                toastAct.run()
+                setToastMsg('')
+                setToastAct(null)
+              }}
+            >
+              {toastAct.label}
+            </button>
+          )}
+        </div>
+      )}
     </AppCtx.Provider>
   )
 }
@@ -172,7 +197,7 @@ export default function App() {
 function SearchDialog({ onClose }: { onClose: () => void }) {
   const { go } = useAppCtx()
   const [q, setQ] = useState('')
-  const [r, setR] = useState<any>({ projects: [], todos: [], files: [], notes: [], contacts: [], reviews: [], library: [], pages: [], flows: [] })
+  const [r, setR] = useState<any>({ projects: [], todos: [], files: [], notes: [], contacts: [], library: [], pages: [], flows: [] })
   const { data } = useAppCtx()
   useEffect(() => {
     const t = setTimeout(() => api.call('search', q).then(setR), 120)
@@ -182,7 +207,7 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
     go(n)
     onClose()
   }
-  const total = r.projects.length + r.todos.length + r.files.length + r.notes.length + r.contacts.length + r.reviews.length + r.library.length + r.pages.length + (r.flows?.length || 0)
+  const total = r.projects.length + r.todos.length + r.files.length + r.notes.length + r.contacts.length + r.library.length + r.pages.length + (r.flows?.length || 0)
   return (
     <Modal title="搜索项目、文件、备注、待办" onClose={onClose} width={640}>
       <input autoFocus className="input search-input" placeholder="输入关键词…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -240,13 +265,6 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
         <button key={c.id} className="sr-item" onClick={() => pick({ page: 'contacts', contactId: c.id })}>
           {c.name}
           <span className="faint">{[c.org, c.phone].filter(Boolean).join(' · ')}</span>
-        </button>
-      ))}
-      {r.reviews.length > 0 && <div className="sr-group">审查记录</div>}
-      {r.reviews.map((x: any) => (
-        <button key={x.id} className="sr-item" onClick={() => pick({ page: 'project', projectId: x.projectId, tab: 'detail' })}>
-          {x.type} {x.date}
-          <span className="faint">{data.projects.find((p) => p.id === x.projectId)?.name}</span>
         </button>
       ))}
       {r.todos.length > 0 && <div className="sr-group">待办</div>}

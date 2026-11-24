@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { addDays, api, daysBetween, endOfWeek, isActive, needsAttention, stageOf, uid, useApp, ymd } from '../lib'
+import { addDays, api, daysBetween, endOfWeek, isActive, isArchived, needsAttention, stageOf, uid, useApp, ymd } from '../lib'
 import { Empty, StageDot, Tabs } from '../ui'
 import { groupTodos, QuickAdd, TodoRow } from './Todos'
 import { DeadlineTag } from './Projects'
@@ -84,11 +84,12 @@ export default function Home() {
 
   // 近 30 天：项目截止、待办、询价回价截止
   const upcoming = useMemo(() => {
+    // 已经过了但还没办完的也列在最前面（项目未归档、待办未完成、询价还没回齐）
     const end = addDays(today, 30)
-    const a = projects.filter((p) => p.deadline && p.deadline >= today && p.deadline <= end).map((p) => ({ date: p.deadline, kind: '项目截止', title: p.name, onClick: () => go({ page: 'project', projectId: p.id }) }))
-    const b = todos.filter((t) => !t.done && t.due && t.due >= today && t.due <= end).map((t) => ({ date: t.due, kind: '待办', title: t.title, onClick: () => go({ page: 'todos' }) }))
+    const a = projects.filter((p) => p.deadline && p.deadline <= end && (p.deadline >= today || !isArchived(settings, p))).map((p) => ({ date: p.deadline, kind: '项目截止', title: p.name, onClick: () => go({ page: 'project', projectId: p.id }) }))
+    const b = todos.filter((t) => !t.done && t.due && t.due <= end).map((t) => ({ date: t.due, kind: '待办', title: t.title, onClick: () => go({ page: 'todos' }) }))
     const d = inquiries
-      .filter((x) => x.deadline && x.deadline >= today && x.deadline <= end && ['询价中', '编制中'].includes(x.status))
+      .filter((x) => x.deadline && x.deadline <= end && ['询价中', '编制中'].includes(x.status))
       .map((x) => ({ date: x.deadline, kind: '回价截止', title: x.name, onClick: () => go({ page: 'inquiries', inquiryId: x.id }) }))
     return [...a, ...b, ...d].sort((x, y) => x.date.localeCompare(y.date))
   }, [projects, todos, inquiries])
@@ -97,14 +98,19 @@ export default function Home() {
     const m = new Map<string, number>()
     for (const p of projects) if (p.deadline) m.set(p.deadline, (m.get(p.deadline) || 0) + 1)
     for (const t of todos) if (t.due && !t.done) m.set(t.due, (m.get(t.due) || 0) + 1)
+    for (const x of inquiries) if (x.deadline) m.set(x.deadline, (m.get(x.deadline) || 0) + 1)
     return m
-  }, [projects, todos])
+  }, [projects, todos, inquiries])
 
   const weekTodos = todos.filter((t) => t.due && t.due >= addDays(eow, -6) && t.due <= eow)
   const weekDone = weekTodos.filter((t) => t.done).length
   const todoList = todoTab === 'today' ? [...g.overdue, ...g.today] : todoTab === 'week' ? [...g.overdue, ...g.today, ...g.week] : [...g.overdue, ...g.today, ...g.week, ...g.later, ...g.none]
   const projList = projTab === 'attention' ? attention : projTab === 'active' ? active : [...projects].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 15)
   const openInq = inquiries.filter((x) => ['编制中', '询价中', '比价中'].includes(x.status))
+  // 供应商入库资料：60 天内到期或已过期
+  const in60 = addDays(today, 60)
+  const certs = data.companies.flatMap((c) => (c.docs || []).filter((x: any) => x.expireDate && x.expireDate <= in60))
+  const certsExpired = certs.filter((x: any) => x.expireDate < today).length
 
   const hour = new Date().getHours()
   const hello = hour < 6 ? '夜深了' : hour < 12 ? '上午好' : hour < 14 ? '中午好' : hour < 19 ? '下午好' : '晚上好'
@@ -115,7 +121,8 @@ export default function Home() {
   const days = Array.from({ length: 42 }, (_, i) => ymd(new Date(cy, cm - 1, 1 - offset + i)))
   const shiftMonth = (n: number) => setCalMonth(ymd(new Date(cy, cm - 1 + n, 1)).slice(0, 7))
   const selItems = [
-    ...projects.filter((p) => p.deadline === calSel).map((p) => `项目截止：${p.name}`)
+    ...projects.filter((p) => p.deadline === calSel).map((p) => `项目截止：${p.name}`),
+    ...inquiries.filter((x) => x.deadline === calSel).map((x) => `回价截止：${x.name}`)
   ]
   const selTodos = todos.filter((t) => t.due === calSel && !t.done)
 
@@ -146,6 +153,7 @@ export default function Home() {
         {stat('需要关注', attention.length, '两周内到期或已逾期', undefined, attention.length ? 'var(--warn)' : undefined)}
         {stat('待办', g.today.length + g.overdue.length, `今天 ${g.today.length} · 逾期 ${g.overdue.length} · 本周完成 ${weekDone}`, () => go({ page: 'todos' }), g.overdue.length ? 'var(--danger)' : undefined)}
         {stat('询价', openInq.length, `进行中 · 已定标 ${inquiries.filter((x) => x.status === '已定标').length}`, () => go({ page: 'inquiries' }))}
+        {stat('资质提醒', certs.length, certs.length ? `已过期 ${certsExpired} · 60 天内到期 ${certs.length - certsExpired}` : '供应商入库资料都在有效期内', () => go({ page: 'contacts' }), certsExpired ? 'var(--danger)' : certs.length ? 'var(--warn)' : undefined)}
       </div>
 
       <div className="home3">
@@ -166,7 +174,7 @@ export default function Home() {
 
         <div className="home-col">
           <div className="card home-card grow-card">
-            <div className="card-head">近期日程 <span className="faint">30 天内</span></div>
+            <div className="card-head">近期日程 <span className="faint">30 天内 · 含已逾期未完成</span></div>
             <div className="card-body scroll">
               {upcoming.length === 0 ? (
                 <div className="faint">30 天内没有截止、待办和回价</div>
@@ -176,7 +184,9 @@ export default function Home() {
                     <span className="tag">{u.date.slice(5)}</span>
                     <span className="faint" style={{ width: 56, fontSize: 12 }}>{u.kind}</span>
                     <span className="grow click" onClick={u.onClick}>{u.title}</span>
-                    <span className="faint" style={{ fontSize: 12 }}>{daysBetween(today, u.date) === 0 ? '今天' : `${daysBetween(today, u.date)} 天后`}</span>
+                    <span className={daysBetween(today, u.date) < 0 ? 'red-text' : 'faint'} style={{ fontSize: 12 }}>
+                      {daysBetween(today, u.date) === 0 ? '今天' : daysBetween(today, u.date) < 0 ? `逾期 ${-daysBetween(today, u.date)} 天` : `${daysBetween(today, u.date)} 天后`}
+                    </span>
                   </div>
                 ))
               )}
@@ -198,7 +208,7 @@ export default function Home() {
             </div>
             <div className="card-body scroll">
               {projList.length === 0 ? (
-                <Empty title="这里还没有项目" />
+                <Empty title={projects.length === 0 ? '这里还没有项目' : projTab === 'attention' ? '没有两周内到期或已逾期的项目' : '没有进行中的项目'} />
               ) : (
                 projList.map((p) => {
                   const s = stageOf(settings, p.stage)

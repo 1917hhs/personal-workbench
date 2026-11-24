@@ -29,7 +29,6 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     todos: store.todos,
     stickies: store.stickies,
     contacts: store.contacts,
-    reviews: store.reviews,
     library: store.library,
     focus: store.focus,
     libraryDir: store.libraryDir,
@@ -38,7 +37,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     companyDir: store.companyDir,
     backupDir: store.backupDir,
     migratedFrom: store.migratedFrom,
-    cards: store.cards,
+    loadProblems: store.loadProblems,
     companies: store.companies,
     inquiries: store.inquiries,
     flows: store.flows,
@@ -224,10 +223,11 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   h('projects:delete', (id: string) => {
     store.projects = store.projects.filter((p) => p.id !== id).map((p) => (p.parentId === id ? { ...p, parentId: null } : p))
     store.todos = store.todos.map((t) => (t.projectId === id ? { ...t, projectId: null } : t))
-    store.reviews = store.reviews.filter((r) => r.projectId !== id)
+    // 询价保留，改成「未关联项目」，不留指向已删项目的 id
+    store.inquiries = store.inquiries.map((x) => (x.projectId === id ? { ...x, projectId: null } : x))
     store.save('projects')
     store.save('todos')
-    store.save('reviews')
+    store.save('inquiries')
     fileIndex.delete(id)
     return all()
   })
@@ -259,7 +259,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return store.focus
   })
 
-  for (const kind of ['cards', 'companies', 'inquiries', 'flows'] as Kind[]) {
+  for (const kind of ['companies', 'inquiries', 'flows'] as Kind[]) {
     h(`${kind}:delete`, (id: string) => {
       ;(store as any)[kind] = (store[kind] as any[]).filter((x) => x.id !== id)
       store.save(kind)
@@ -306,17 +306,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   h('profile:move', (id: string, d: number) => moveSection(store, id, d))
   h('profile:revert', (changeId: string) => revertChange(store, changeId))
 
-  // 漫步用：所有项目导图上的备注
-  h('wander:notes', () => {
-    const out: any[] = []
-    for (const p of store.projects) {
-      const meta = store.meta(p.id)
-      for (const [rel, m] of Object.entries<any>(meta.nodes)) if (m.note) out.push({ projectId: p.id, projectName: p.name, rel, note: m.note })
-    }
-    return out
-  })
-
-  for (const kind of ['contacts', 'reviews', 'focus', 'cards', 'companies', 'inquiries', 'flows'] as Kind[]) {
+  for (const kind of ['contacts', 'focus', 'companies', 'inquiries', 'flows'] as Kind[]) {
     h(`${kind}:save`, (x: any) => {
       // 联系人的 org 字段跟着所属单位名走，搜索和 AI 助手直接用
       if (kind === 'contacts' && x.companyId) x = { ...x, org: store.companies.find((c) => c.id === x.companyId)?.name || x.org || '' }
@@ -329,19 +319,12 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
       return store[kind]
     })
   }
-  h('reviews:delete', (id: string) => {
-    store.reviews = store.reviews.filter((r) => r.id !== id)
-    store.save('reviews')
-    return store.reviews
-  })
-  // 删除联系人时，从项目和审查记录里一并去掉
+  // 删除联系人时，从项目联系人里一并去掉
   h('contacts:delete', (id: string) => {
     store.contacts = store.contacts.filter((c) => c.id !== id)
     store.projects = store.projects.map((p) => (p.contacts ? { ...p, contacts: p.contacts.filter((x: any) => x.contactId !== id) } : p))
-    store.reviews = store.reviews.map((r) => ({ ...r, participants: (r.participants || []).filter((x: any) => x.contactId !== id) }))
     store.save('contacts')
     store.save('projects')
-    store.save('reviews')
     return all()
   })
 
@@ -515,7 +498,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
       项目地点: p.location || '',
       截止日期: p.deadline || '',
       未完成待办: store.todos.filter((t) => t.projectId === p.id && !t.done).length,
-      审查次数: store.reviews.filter((x) => x.projectId === p.id).length,
+      询价: store.inquiries.filter((x) => x.projectId === p.id).length,
       项目文件夹: p.rootPath || '',
       备注: p.description || ''
     }))

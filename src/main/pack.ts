@@ -21,7 +21,7 @@ const CHECK_TEXT = 'project-desk-pack-ok'
 
 /** 备份类别 → 数据文件夹里对应的文件和子文件夹 */
 export const CATEGORIES: Record<string, { label: string; files: string[]; dirs: string[] }> = {
-  projects: { label: '项目信息（项目、导图备注与引用、审查记录）', files: ['projects.json', 'reviews.json'], dirs: ['meta'] },
+  projects: { label: '项目信息（项目、导图备注与引用）', files: ['projects.json'], dirs: ['meta'] },
   projectFiles: { label: '项目文件夹（图纸、报告、照片等文件本身）', files: [], dirs: [] },
   tasks: { label: '待办、便签、专注记录', files: ['todos.json', 'stickies.json', 'focus.json'], dirs: [] },
   kb: { label: '备忘录', files: [], dirs: ['kb'] },
@@ -264,7 +264,7 @@ export async function importPack(store: Store, dir: string, o: { password?: stri
   for (const f of replaced.files) if (fs.existsSync(path.join(store.dataDir, f))) fs.copyFileSync(path.join(store.dataDir, f), path.join(saved, f))
   for (const d of replaced.dirs) if (fs.existsSync(path.join(store.dataDir, d))) fs.cpSync(path.join(store.dataDir, d), path.join(saved, d), { recursive: true })
 
-  const keepSettings = { backup: store.settings.backup, libraryDir: store.settings.libraryDir, projectsRoot: store.settings.projectsRoot, ai: store.settings.ai }
+  const keepSettings = { libraryDir: store.settings.libraryDir, projectsRoot: store.settings.projectsRoot, ai: store.settings.ai }
   for (const f of replaced.files) fs.rmSync(path.join(store.dataDir, f), { force: true })
   for (const d of replaced.dirs) fs.rmSync(path.join(store.dataDir, d), { recursive: true, force: true })
 

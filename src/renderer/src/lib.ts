@@ -163,10 +163,8 @@ export interface AppData {
   todos: any[]
   stickies: any[]
   contacts: any[]
-  reviews: any[]
   library: any[]
   focus: any[]
-  cards: any[]
   companies: any[]
   inquiries: any[]
   flows: any[]
@@ -175,6 +173,7 @@ export interface AppData {
   backupDir: string
   companyDir: string
   migratedFrom: string | null
+  loadProblems: string[]
   dataDir: string
   version: string
 }
@@ -204,12 +203,11 @@ export interface Ctx {
   deleteTodo: (id: string) => Promise<void>
   saveSettings: (s: any) => Promise<void>
   saveContact: (c: any) => Promise<void>
-  /** 保存卡片 / 单位 / 询价 */
-  saveItem: (kind: 'cards' | 'companies' | 'inquiries' | 'flows', x: any) => Promise<any>
-  deleteItem: (kind: 'cards' | 'companies' | 'inquiries' | 'flows', id: string) => Promise<void>
-  saveReview: (r: any) => Promise<void>
-  deleteReview: (id: string) => Promise<void>
-  toast: (msg: string) => void
+  /** 保存单位 / 询价 / 流程 */
+  saveItem: (kind: 'companies' | 'inquiries' | 'flows', x: any) => Promise<any>
+  deleteItem: (kind: 'companies' | 'inquiries' | 'flows', id: string) => Promise<void>
+  /** 底部提示；带 action 时显示一个按钮（如「撤销」） */
+  toast: (msg: string, action?: { label: string; run: () => void }) => void
 }
 
 export function joinPath(root: string, rel: string) {

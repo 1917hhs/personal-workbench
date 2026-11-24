@@ -29,7 +29,8 @@ export default function Inquiries({ focusId }: { focusId?: string }) {
     .filter((x) => !pid || x.projectId === pid)
     .filter((x) => !q.trim() || [x.name, x.discipline, x.scope].join(' ').toLowerCase().includes(q.trim().toLowerCase()))
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
-  const cur = data.inquiries.find((x) => x.id === sel)
+  // 没选的时候默认打开列表第一条，不让右边空着
+  const cur = data.inquiries.find((x) => x.id === sel) || (sel === null ? list[0] : undefined)
 
   const add = async () => {
     const name = await ask('新建询价（专业包）', '', '如：1# 楼桩基工程、钢结构材料')
@@ -64,20 +65,27 @@ export default function Inquiries({ focusId }: { focusId?: string }) {
           {list.map((x) => {
             const quoted = new Set((x.quotes || []).map((r: any) => r.companyId)).size
             return (
-              <div key={x.id} className={'tpl-item' + (sel === x.id ? ' on' : '')} onClick={() => setSel(x.id)}>
+              <div key={x.id} className={'tpl-item' + (cur?.id === x.id ? ' on' : '')} onClick={() => setSel(x.id)}>
                 <div className="row" style={{ gap: 6 }}>
                   <b style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</b>
                   <span className={'tag ' + statusCls(x.status)}>{x.status}</span>
                 </div>
                 <div className="faint" style={{ fontSize: 11 }}>
                   {data.projects.find((p) => p.id === x.projectId)?.name || '未关联项目'} · 发 {(x.sends || []).length} 家 · 回 {quoted} 家
-                  {x.deadline ? ` · 截止 ${x.deadline.slice(5)}` : ''}
+                  {x.deadline ? (
+                    <span className={x.deadline < ymd() && ['编制中', '询价中'].includes(x.status) ? 'red-text' : ''}>
+                      {' · '}截止 {x.deadline.slice(5)}
+                      {x.deadline < ymd() && ['编制中', '询价中'].includes(x.status) ? '（已过）' : ''}
+                    </span>
+                  ) : (
+                    ''
+                  )}
                 </div>
               </div>
             )
           })}
         </div>
-        <div className="lib-list">{cur ? <InquiryDetail key={cur.id} x={cur} onDeleted={() => setSel(null)} /> : data.inquiries.length ? <Empty title="选择左边的一条询价" /> : <Empty title="还没有询价"><button className="btn primary" onClick={add}>+ 新建询价</button></Empty>}</div>
+        <div className="lib-list">{cur ? <InquiryDetail key={cur.id} x={cur} onDeleted={() => setSel(null)} /> : data.inquiries.length ? <Empty title="没有符合筛选条件的询价" /> : <Empty title="还没有询价"><button className="btn primary" onClick={add}>+ 新建询价</button></Empty>}</div>
       </div>
     </>
   )

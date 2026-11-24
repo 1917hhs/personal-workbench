@@ -14,6 +14,21 @@ protocol.registerSchemesAsPrivileged([
 // 测试时可用环境变量把数据放到别处，不影响正式数据
 if (process.env.PROJECT_DESK_USERDATA) app.setPath('userData', process.env.PROJECT_DESK_USERDATA)
 
+// 界面语言用中文：日期框显示「2026/11/24」，右键菜单、对话框按钮也是中文
+app.commandLine.appendSwitch('lang', 'zh-CN')
+
+// 只允许开一个：同时开两个会各自写同一批数据文件，后保存的会覆盖先保存的
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+  process.exit(0)
+}
+app.on('second-instance', () => {
+  if (!win) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+})
+
 let win: BrowserWindow | null = null
 let store: Store
 

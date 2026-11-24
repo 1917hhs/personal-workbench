@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { daysBetween, endOfWeek, uid, useApp, ymd } from '../lib'
+import { addDays, daysBetween, endOfWeek, uid, useApp, ymd } from '../lib'
 import { ask, Empty } from '../ui'
 
 export const PRIORITIES = [
@@ -7,6 +7,31 @@ export const PRIORITIES = [
   { id: 'normal', label: '中', color: '#f59e0b' },
   { id: 'low', label: '低', color: '#94a3b8' }
 ]
+export const REPEATS = [
+  { id: '', label: '不重复' },
+  { id: 'day', label: '每天' },
+  { id: 'workday', label: '每个工作日' },
+  { id: 'week', label: '每周' },
+  { id: 'month', label: '每月' }
+]
+
+/** 重复待办的下一次日期 */
+export function nextDue(due: string, repeat: string) {
+  if (repeat === 'day') return addDays(due, 1)
+  if (repeat === 'week') return addDays(due, 7)
+  if (repeat === 'workday') {
+    let d = addDays(due, 1)
+    while ([0, 6].includes(new Date(d + 'T00:00:00').getDay())) d = addDays(d, 1)
+    return d
+  }
+  if (repeat === 'month') {
+    const [y, m, day] = due.split('-').map(Number)
+    const last = new Date(y, m + 1, 0).getDate() // 下个月最后一天（31 号遇到小月取月底）
+    return ymd(new Date(y, m, Math.min(day, last)))
+  }
+  return due
+}
+
 const prioRank = (t: any) => (t.priority === 'high' ? 0 : t.priority === 'low' ? 2 : 1)
 
 export function groupTodos(todos: any[]) {
@@ -56,11 +81,23 @@ export function TodoRow({ t, showProject = true }: { t: any; showProject?: boole
   const [open, setOpen] = useState(false)
   const p = data.projects.find((x) => x.id === t.projectId)
   const prio = PRIORITIES.find((x) => x.id === (t.priority || 'normal'))!
+  const toggle = async (done: boolean) => {
+    await saveTodo({ ...t, done, doneAt: done ? new Date().toISOString() : null })
+    // 重复待办：完成后自动排下一次（从原定日期往后推，逾期很久的推到今天以后）
+    if (done && t.repeat && t.due && !t.nextId) {
+      let due = nextDue(t.due, t.repeat)
+      while (due < ymd()) due = nextDue(due, t.repeat)
+      const id = uid()
+      const { nextId: _n, createdAt: _c, updatedAt: _u, ...rest } = t
+      await saveTodo({ ...rest, id, due, done: false, doneAt: null })
+      await saveTodo({ ...t, done: true, doneAt: new Date().toISOString(), nextId: id })
+    }
+  }
   const cyclePrio = () => saveTodo({ ...t, priority: t.priority === 'high' ? 'low' : t.priority === 'low' ? 'normal' : 'high' })
   return (
     <div className={'todo' + (t.done ? ' done' : '')}>
       <div className="todo-line">
-        <input type="checkbox" className="check" checked={!!t.done} onChange={(e) => saveTodo({ ...t, done: e.target.checked, doneAt: e.target.checked ? new Date().toISOString() : null })} />
+        <input type="checkbox" className="check" checked={!!t.done} onChange={(e) => toggle(e.target.checked)} />
         <button className="prio" title={`优先级：${prio.label}（点击切换）`} style={{ background: prio.color }} onClick={cyclePrio} />
         <span
           className="title"
@@ -73,6 +110,11 @@ export function TodoRow({ t, showProject = true }: { t: any; showProject?: boole
         >
           {t.title}
           {t.note && <span className="faint" style={{ marginLeft: 6, fontSize: 12 }}>📝</span>}
+          {t.repeat && (
+            <span className="faint" style={{ marginLeft: 6, fontSize: 12 }} title={'重复：' + REPEATS.find((r) => r.id === t.repeat)?.label}>
+              🔁
+            </span>
+          )}
         </span>
         {showProject && p && (
           <span className="tag click" onClick={() => go({ page: 'project', projectId: p.id })}>
@@ -99,6 +141,12 @@ export function TodoRow({ t, showProject = true }: { t: any; showProject?: boole
                 {x.label}
               </button>
             ))}
+            <span className="faint" style={{ marginLeft: 8 }}>重复</span>
+            <select className="input" style={{ width: 120 }} value={t.repeat || ''} title="完成后自动生成下一次" onChange={(e) => saveTodo({ ...t, repeat: e.target.value || null, due: e.target.value && !t.due ? ymd() : t.due })}>
+              {REPEATS.map((r) => (
+                <option key={r.id} value={r.id}>{r.label}</option>
+              ))}
+            </select>
             <span className="faint" style={{ marginLeft: 8 }}>项目</span>
             <select className="input" style={{ width: 200 }} value={t.projectId || ''} onChange={(e) => saveTodo({ ...t, projectId: e.target.value || null })}>
               <option value="">不关联</option>

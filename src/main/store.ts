@@ -16,7 +16,6 @@ export const DEFAULT_SETTINGS = {
     { id: 's7', name: '已归档', color: '#9ca3af' }
   ],
   statuses: ['洽谈中', '已签约', '进行中', '暂停', '未成交'],
-  reviewStages: ['内审', '专家评审', '县审', '市审', '局审', '省审', '部审', '发改委审查', '规委会'],
   autoGroupVersions: true,
   // 单位与供应商库的下拉选项（设置里可改）
   supplierOptions: {
@@ -93,15 +92,7 @@ export const DEFAULT_SETTINGS = {
     { color: '#8b5cf6', label: '参考' }
   ],
   theme: 'system',
-  projectsRoot: '',
-  backup: {
-    folder: '',
-    intervalMin: 60,
-    keep: 30,
-    sourceDir: '',
-    lastAt: null as string | null,
-    lastError: null as string | null
-  }
+  projectsRoot: ''
 }
 
 export function readJson<T>(file: string, fallback: T): T {
@@ -113,20 +104,53 @@ export function readJson<T>(file: string, fallback: T): T {
   }
 }
 
+/** 读数据文件。文件在、但内容坏了（同步冲突、写一半断电）时，先把坏文件另存一份，免得下次保存把它覆盖掉 */
+export function readDataFile<T>(file: string, fallback: T, problems: string[]): T {
+  let text: string
+  try {
+    text = fs.readFileSync(file, 'utf8')
+  } catch {
+    return fallback
+  }
+  try {
+    return JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text)
+  } catch {
+    if (!text.trim()) return fallback
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const saved = file.replace(/\.json$/, '') + `.损坏-${stamp}.json`
+    try {
+      fs.copyFileSync(file, saved)
+    } catch {}
+    problems.push(`${path.basename(file)} 内容损坏，无法读取，已另存为 ${path.basename(saved)}`)
+    return fallback
+  }
+}
+
+const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
 export function writeJsonAtomic(file: string, data: unknown) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   const tmp = file + '.tmp'
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8')
-  fs.renameSync(tmp, file)
+  // 网盘客户端、杀毒软件偶尔会短暂占用文件，改名失败时稍等重试几次
+  for (let i = 0; ; i++) {
+    try {
+      fs.renameSync(tmp, file)
+      return
+    } catch (e: any) {
+      if (i >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) throw e
+      sleepSync(60 * (i + 1))
+    }
+  }
 }
 
-export type Kind = 'projects' | 'todos' | 'stickies' | 'settings' | 'contacts' | 'reviews' | 'library' | 'focus' | 'cards' | 'companies' | 'inquiries' | 'flows'
+export type Kind = 'projects' | 'todos' | 'stickies' | 'settings' | 'contacts' | 'library' | 'focus' | 'companies' | 'inquiries' | 'flows'
 
-const KINDS: Kind[] = ['projects', 'todos', 'stickies', 'settings', 'contacts', 'reviews', 'library', 'focus', 'cards', 'companies', 'inquiries', 'flows']
+const KINDS: Kind[] = ['projects', 'todos', 'stickies', 'settings', 'contacts', 'library', 'focus', 'companies', 'inquiries', 'flows']
 
 /** 数据文件夹里软件认识的全部内容。备份、搬家、导出都只处理这些，别的文件一概不碰 */
 export const DATA_FILES = [...KINDS.map((k) => k + '.json'), 'ai-log.json', 'profile.json']
-export const DATA_DIRS = ['meta', 'kb', 'diary', 'ai-backup']
+export const DATA_DIRS = ['meta', 'kb', 'ai-backup']
 
 /** 工作台根目录下的子文件夹 */
 export const SUB = { data: '数据', library: '资料库', projects: '项目', backup: '备份', companies: '供应商与联系人' }
@@ -170,15 +194,15 @@ export class Store {
   todos: any[] = []
   stickies: any[] = []
   contacts: any[] = []
-  reviews: any[] = []
   library: any[] = []
   focus: any[] = []
-  cards: any[] = []
   companies: any[] = []
   inquiries: any[] = []
   /** 工作流程图（审批流程）：节点、连线、审批人、所需附件 */
   flows: any[] = []
   settings: any = structuredClone(DEFAULT_SETTINGS)
+  /** 启动时读数据遇到的问题（文件损坏等），界面上提示一次 */
+  loadProblems: string[] = []
 
   constructor() {
     const cfg = readJson<any>(this.configFile, {})
@@ -229,23 +253,28 @@ export class Store {
 
   load() {
     fs.mkdirSync(this.dataDir, { recursive: true })
-    this.projects = readJson(this.file('projects.json'), [])
-    this.todos = readJson(this.file('todos.json'), [])
-    this.stickies = readJson(this.file('stickies.json'), [])
-    this.contacts = readJson(this.file('contacts.json'), [])
-    this.reviews = readJson(this.file('reviews.json'), [])
-    this.library = readJson(this.file('library.json'), [])
-    this.focus = readJson(this.file('focus.json'), [])
-    this.cards = readJson(this.file('cards.json'), [])
-    this.companies = readJson(this.file('companies.json'), [])
-    this.inquiries = readJson(this.file('inquiries.json'), [])
-    this.flows = readJson(this.file('flows.json'), [])
+    this.loadProblems = []
+    const rd = (k: Kind) => {
+      const v = readDataFile<any>(this.file(k + '.json'), [], this.loadProblems)
+      return Array.isArray(v) ? v : []
+    }
+    this.projects = rd('projects')
+    this.todos = rd('todos')
+    this.stickies = rd('stickies')
+    this.contacts = rd('contacts')
+    this.library = rd('library')
+    this.focus = rd('focus')
+    this.companies = rd('companies')
+    this.inquiries = rd('inquiries')
+    this.flows = rd('flows')
     this.migrateContacts()
-    const s = readJson<any>(this.file('settings.json'), {})
+    const s = readDataFile<any>(this.file('settings.json'), {}, this.loadProblems)
+    // 已删除功能（云盘同步、审查）留下的设置项
+    delete s.backup
+    delete s.reviewStages
     this.settings = {
       ...structuredClone(DEFAULT_SETTINGS),
       ...s,
-      backup: { ...DEFAULT_SETTINGS.backup, ...(s.backup || {}) },
       map: { ...DEFAULT_SETTINGS.map, ...(s.map || {}) },
       ai: { ...DEFAULT_SETTINGS.ai, ...(s.ai || {}) },
       focus: { ...DEFAULT_SETTINGS.focus, ...(s.focus || {}) },

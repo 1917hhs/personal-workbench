@@ -734,3 +734,5 @@ tr.drop-row.over td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   .fnode-group { background: rgba(20, 168, 154, 0.06); }
   .fnode-title.c-light { background: #134e4a; color: #99f6e4; }
 }
+.toast-act { margin-left: 12px; background: none; border: 0; color: #93c5fd; font-weight: 600; cursor: pointer; padding: 0; font-size: inherit; }
+.toast-act:hover { text-decoration: underline; }

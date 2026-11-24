@@ -609,9 +609,9 @@ function StorageSection() {
   const sep = data.root.includes('\\') ? '\\' : '/'
   const under = (p: string) => p && p.toLowerCase().startsWith(data.root.toLowerCase())
   const moveRoot = async () => {
-    const d = await api.call('dialog:pickFolder', '选择新的根目录（会在里面建 数据/资料库/项目/备份）')
+    const d = await api.call('dialog:pickFolder', '选择新的根目录（会在里面建 数据/资料库/项目/备份/供应商与联系人）')
     if (!d) return
-    if (!confirm(`把全部数据搬到：\n${d}\n\n会复制 数据、资料库、项目、备份 四个文件夹过去，并改写项目路径。原位置的文件保留不动，确认无误后可以自己删除。\n项目文件多时需要一点时间。继续？`)) return
+    if (!confirm(`把全部数据搬到：\n${d}\n\n会复制 数据、资料库、项目、备份、供应商与联系人 五个文件夹过去，并改写项目路径。原位置的文件保留不动，确认无误后可以自己删除。\n项目文件多时需要一点时间。继续？`)) return
     setBusy(true)
     try {
       setData(await api.call('workspace:move', d))
@@ -625,7 +625,7 @@ function StorageSection() {
     <>
       <h2>存储位置</h2>
       <div className="desc">
-        软件的全部内容默认放在同一个根目录下：<b>数据</b>（项目信息、待办、备忘录、通讯录、询价……）、<b>资料库</b>、<b>项目</b>（新建项目的文件夹）、<b>备份</b>。
+        软件的全部内容默认放在同一个根目录下：<b>数据</b>（项目信息、待办、备忘录、通讯录、询价……）、<b>资料库</b>、<b>项目</b>（新建项目的文件夹）、<b>供应商与联系人</b>（单位附件）、<b>备份</b>。
         整个根目录拷走就是完整的一份，也可以在「备份与分享」里按类别打包。
       </div>
       <div className="field">
@@ -640,6 +640,7 @@ function StorageSection() {
         {row('数据', data.dataDir)}
         {row('资料库', data.libraryDir)}
         {row('项目', data.settings.projectsRoot)}
+        {row('供应商与联系人', data.companyDir)}
         {row('备份', data.backupDir)}
       </div>
       {(!under(data.libraryDir) || !under(data.settings.projectsRoot)) && (
