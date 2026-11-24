@@ -1,4 +1,4 @@
-import { app, BrowserWindow, net, protocol, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, net, protocol, shell } from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { Store } from './store'
@@ -59,6 +59,20 @@ function createWindow() {
   })
   if (process.env['ELECTRON_RENDERER_URL']) win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   else win.loadFile(join(__dirname, '../renderer/index.html'))
+  // 关窗口前让界面先把没存的内容存掉（编辑器停顿后才自动保存、输入框离开时才保存），最多等 3 秒
+  let canClose = false
+  win.on('close', (e) => {
+    if (canClose || !win || win.webContents.isCrashed()) return
+    e.preventDefault()
+    const done = () => {
+      if (canClose) return
+      canClose = true
+      win?.close()
+    }
+    ipcMain.once('app:flushed', done)
+    setTimeout(done, 3000)
+    win.webContents.send('app:before-close')
+  })
   win.on('closed', () => (win = null))
 }
 

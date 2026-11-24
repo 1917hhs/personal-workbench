@@ -9,7 +9,7 @@ import { clean as cleanName, storeCompanyFiles, storeInquiryFiles, trashInquiryF
 import { applyLibraryScan, importToLibrary, libAbs, moveLibraryDir, scanLibrary } from './library'
 import { listHistory, listPages, purgePage, readVersion, savePage } from './kb'
 import { exportPack, importPack, packInfo } from './pack'
-import { fileIndex, norm, projectRoot, refStatus, scanProject, searchAll, upsert } from './shared'
+import { afterProjectRename, assertNotRoot, fileIndex, norm, projectRoot, scanProject, searchAll, upsert } from './shared'
 import { aiLog, aiStatus, restartMcp, undoAiAction } from './mcp'
 import { findRefs, importMedia, purgeMedia, refPath, refStatus as memoRefStatus, renameProjectRefs, saveMedia, type RefTarget } from './memo'
 import { deleteSection, getProfile, moveSection, profileMarkdown, revertChange, saveSection } from './profile'
@@ -57,7 +57,20 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return store.settings
   })
 
+  /** 项目文件夹不能是磁盘根目录、系统文件夹，也不能包含工作台自己的数据 */
+  const checkProjectFolder = (dir?: string) => {
+    if (!dir) return
+    const d = norm(dir)
+    if (path.parse(d).root === d || d === path.parse(d).root.replace(/\\$/, '')) throw new Error('不能把整个磁盘当作项目文件夹，请选具体的项目文件夹')
+    const sys = [app.getPath('home'), app.getPath('desktop'), app.getPath('documents'), app.getPath('downloads'), process.env.WINDIR || 'C:\\Windows', process.env.ProgramFiles || 'C:\\Program Files'].map(norm)
+    if (sys.includes(d)) throw new Error('不能把整个「' + dir + '」当作项目文件夹，请在里面选具体的项目文件夹')
+    const mine = [store.root, store.dataDir, store.libraryDir, store.companyDir, store.backupDir].map(norm)
+    if (mine.some((m) => m === d || m.startsWith(d + path.sep))) throw new Error('这个文件夹里有工作台自己的数据，不能当作项目文件夹')
+  }
+
   h('projects:save', (p: any) => {
+    const old = store.projects.find((x) => x.id === p.id)
+    if (p.rootPath && p.rootPath !== old?.rootPath) checkProjectFolder(p.rootPath)
     upsert(store.projects, p)
     store.save('projects')
     return store.projects
@@ -90,7 +103,8 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     if (folder.mode === 'template') {
       const base = store.settings.projectsRoot
       if (!base) throw new Error('请先在设置里指定「项目根目录」')
-      const name = [p.code, p.name].filter(Boolean).join(' ').replace(/[\\/:*?"<>|]/g, '_')
+      const name = cleanName([p.code, p.name].filter(Boolean).join(' '))
+      if (!String(p.name || '').trim()) throw new Error('请先填写项目名称')
       const dir = path.join(base, name)
       const t = templateOf(folder.templateId)
       fs.mkdirSync(dir, { recursive: true })
@@ -98,6 +112,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
       p.rootPath = dir
       p.templateId = t.id
     } else if (folder.mode === 'existing') {
+      checkProjectFolder(folder.path)
       p.rootPath = folder.path
     }
     upsert(store.projects, p)
@@ -310,10 +325,13 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     h(`${kind}:save`, (x: any) => {
       // 联系人的 org 字段跟着所属单位名走，搜索和 AI 助手直接用
       if (kind === 'contacts' && x.companyId) x = { ...x, org: store.companies.find((c) => c.id === x.companyId)?.name || x.org || '' }
+      if (!x?.id) throw new Error('数据缺少 id，没有保存')
       upsert(store[kind] as any[], x)
       store.save(kind)
-      if (kind === 'companies' && store.contacts.some((c) => c.companyId === x.id && c.org !== x.name)) {
-        store.contacts = store.contacts.map((c) => (c.companyId === x.id ? { ...c, org: x.name } : c))
+      // 界面可能只传改动的字段，按合并后的记录来判断
+      const merged = (store[kind] as any[]).find((y) => y.id === x.id)
+      if (kind === 'companies' && merged?.name && store.contacts.some((c) => c.companyId === x.id && c.org !== merged.name)) {
+        store.contacts = store.contacts.map((c) => (c.companyId === x.id ? { ...c, org: merged.name } : c))
         store.save('contacts')
       }
       return store[kind]
@@ -385,38 +403,16 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
 
   h('fs:rename', (id: string, rel: string, newName: string) => {
     const from = abs(id, rel)
-    const to = path.join(path.dirname(from), newName.replace(/[\\/:*?"<>|]/g, '_'))
-    if (fs.existsSync(to)) throw new Error('同名文件已存在')
+    assertNotRoot(store, id, from)
+    const name = String(newName || '').replace(/[\\/:*?"<>|]/g, '_').trim().replace(/[. ]+$/, '')
+    if (!name) throw new Error('名字不能为空')
+    const to = path.join(path.dirname(from), name)
+    // 只改大小写（a.pdf → A.pdf）时 Windows 认为同名文件已存在，要允许
+    if (fs.existsSync(to) && norm(to) !== norm(from)) throw new Error('同名文件已存在')
     fs.renameSync(from, to)
     const newRel = path.relative(projectRoot(store, id), to).split(path.sep).join('/')
     renameProjectRefs(store, id, rel, newRel)
-    // 备注、颜色跟着改名走
-    const meta = store.meta(id)
-    for (const k of Object.keys(meta.nodes)) {
-      if (k === rel || k.startsWith(rel + '/')) {
-        meta.nodes[newRel + k.slice(rel.length)] = meta.nodes[k]
-        delete meta.nodes[k]
-      }
-    }
-    for (const r of meta.refs) {
-      if (r.parentRel === rel || r.parentRel.startsWith(rel + '/')) r.parentRel = newRel + r.parentRel.slice(rel.length)
-    }
-    store.saveMeta(id, meta)
-    // 所有项目里指向这个文件（或这个文件夹里文件）的引用，跟着改路径
-    const oldAbs = norm(from)
-    for (const p of store.projects) {
-      const m = store.meta(p.id)
-      let changed = false
-      for (const r of m.refs) {
-        const n = norm(r.path)
-        if (n === oldAbs || n.startsWith(oldAbs + path.sep)) {
-          r.path = to + r.path.slice(from.length)
-          r.name = path.basename(r.path)
-          changed = true
-        }
-      }
-      if (changed) store.saveMeta(p.id, m)
-    }
+    afterProjectRename(store, id, rel, newRel, from, to)
     return newRel
   })
 
@@ -430,7 +426,9 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
 
   h('fs:trash', async (id: string, rel: string) => {
     if (!rel) throw new Error('不能删除项目根文件夹')
-    await shell.trashItem(abs(id, rel))
+    const target = abs(id, rel)
+    assertNotRoot(store, id, target)
+    await shell.trashItem(target)
     return true
   })
 

@@ -96,7 +96,8 @@ function InquiryDetail({ x, onDeleted }: { x: any; onDeleted: () => void }) {
   const { data, saveItem, deleteItem, go, toast } = useApp()
   const [sending, setSending] = useState(false)
   const [quoteFor, setQuoteFor] = useState<any>(null)
-  const save = (patch: any) => saveItem('inquiries', { ...x, ...patch })
+  // 只传改动的字段，避免慢操作（复制文件）结束时把这期间改的其他字段用旧值盖回去
+  const save = (patch: any) => saveItem('inquiries', { id: x.id, ...patch })
   const co = (id: string) => data.companies.find((c) => c.id === id)
   const sends: any[] = x.sends || []
   const quotes: any[] = x.quotes || []
@@ -254,7 +255,7 @@ function InquiryDetail({ x, onDeleted }: { x: any; onDeleted: () => void }) {
                 <input type="date" className="input" style={{ width: 150 }} defaultValue={v.date} onBlur={(e) => save({ versions: versions.map((y) => (y.id === v.id ? { ...y, date: e.target.value } : y)) })} />
                 <input className="input" placeholder="编制人" defaultValue={v.author} style={{ width: 100 }} onBlur={(e) => save({ versions: versions.map((y) => (y.id === v.id ? { ...y, author: e.target.value } : y)) })} />
                 <input className="input" placeholder="清单内容简介 / 改了什么" defaultValue={v.summary} onBlur={(e) => save({ versions: versions.map((y) => (y.id === v.id ? { ...y, summary: e.target.value } : y)) })} />
-                <button className="icon-btn" title="删除这一版" onClick={async () => confirm(`删除第 ${v.version} 版？${v.files?.length ? `其中 ${v.files.length} 个文件会移到回收站。` : ''}`) && (await trash(v.files || []), save({ versions: versions.filter((y) => y.id !== v.id) }))}>×</button>
+                <button className="icon-btn" title="删除这一版" onClick={async () => confirm(`删除第 ${v.version} 版？${v.files?.length ? `其中 ${v.files.length} 个文件会移到回收站。` : ''}`) && (await save({ versions: versions.filter((y) => y.id !== v.id) }), trash(v.files || []))}>×</button>
               </div>
               <Files
                 files={v.files}
@@ -264,7 +265,7 @@ function InquiryDetail({ x, onDeleted }: { x: any; onDeleted: () => void }) {
                 }}
                 onDropPaths={(ps) => addToVersion(v, ps)}
                 dropHint="或把文件拖到这一版"
-                onRemove={async (f) => confirm(`删除文件「${fname(f)}」？会移到回收站。`) && (await trash([f]), save({ versions: versions.map((y) => (y.id === v.id ? { ...y, files: y.files.filter((z: string) => z !== f) } : y)) }))}
+                onRemove={async (f) => confirm(`删除文件「${fname(f)}」？会移到回收站。`) && (await save({ versions: versions.map((y) => (y.id === v.id ? { ...y, files: y.files.filter((z: string) => z !== f) } : y)) }), trash([f]))}
               />
             </div>
           ))}
@@ -353,7 +354,7 @@ function InquiryDetail({ x, onDeleted }: { x: any; onDeleted: () => void }) {
                         <button
                           className="icon-btn"
                           title="移除"
-                          onClick={async () => confirm(`移除这家？${rs.length ? `它的 ${rs.length} 轮回价也会一起删除，回价文件移到回收站。` : ''}`) && (await trash(rs.flatMap((r) => r.files || [])), save({ sends: sends.filter((y) => y.id !== s.id), quotes: quotes.filter((r) => r.companyId !== s.companyId) }))}
+                          onClick={async () => confirm(`移除这家？${rs.length ? `它的 ${rs.length} 轮回价也会一起删除，回价文件移到回收站。` : ''}`) && (await save({ sends: sends.filter((y) => y.id !== s.id), quotes: quotes.filter((r) => r.companyId !== s.companyId) }), trash(rs.flatMap((r) => r.files || [])))}
                         >
                           ×
                         </button>
@@ -463,15 +464,16 @@ function InquiryDetail({ x, onDeleted }: { x: any; onDeleted: () => void }) {
           initialFiles={quoteFor.files}
           storeFiles={(paths, company) => storeFiles('quote', company, paths)}
           onClose={(added) => (trash(added), setQuoteFor(null))}
-          onSave={(r, del, removed) => {
-            trash(del ? r.files || [] : removed || [])
+          onSave={async (r, del, removed) => {
             const others = quotes.filter((y) => y.id !== r.id)
             const nextQuotes = del ? others : [...others, r]
             // 收到回价：把对应发包状态改为「已回价」
             const nextSends = sends.map((s) => (s.companyId === r.companyId && !del && s.status !== '已回价' ? { ...s, status: '已回价' } : s))
             const allIn = nextSends.length && nextSends.every((s) => s.status !== '已发送')
-            save({ quotes: nextQuotes, sends: nextSends, status: allIn && x.status === '询价中' ? '比价中' : x.status })
             setQuoteFor(null)
+            // 先保存再删文件：删的时候主进程会跳过别处还在用的文件
+            await save({ quotes: nextQuotes, sends: nextSends, status: allIn && x.status === '询价中' ? '比价中' : x.status })
+            trash(del ? r.files || [] : removed || [])
           }}
         />
       )}

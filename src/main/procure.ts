@@ -155,14 +155,36 @@ function managedRoots(store: Store) {
  * 删除询价 / 回价文件：只删工作台自己复制进来、放在上面那些文件夹里的文件（移到回收站，能恢复），
  * 别处的原文件不动。删完把变空的文件夹也清掉。返回实际移到回收站的个数。
  */
+/** 已保存的数据里还在用的附件（询价版次、回价、单位入库资料 / 项目经验），小写绝对路径 */
+function usedFiles(store: Store) {
+  const s = new Set<string>()
+  const add = (fs: any) => {
+    for (const f of fs || []) if (typeof f === 'string' && f) s.add(path.resolve(f).toLowerCase())
+  }
+  for (const x of store.inquiries) {
+    for (const v of x.versions || []) add(v.files)
+    for (const q of x.quotes || []) add(q.files)
+  }
+  for (const c of store.companies) {
+    for (const d of c.docs || []) add(d.files)
+    for (const e of c.experience || []) add(e.files)
+  }
+  return s
+}
+
+/**
+ * 调用方要先保存（把记录里的文件去掉）再调这里：已保存的数据里别处还在用的文件（比如第 1 轮的回价文件又拖进了第 2 轮）一律不删。
+ */
 export async function trashInquiryFiles(store: Store, paths: string[]) {
   const { shell } = await import('electron')
   const roots = managedRoots(store)
+  const used = usedFiles(store)
   let n = 0
   for (const p of paths || []) {
     const abs = path.resolve(String(p || ''))
     const root = roots.find((r) => abs.toLowerCase().startsWith(r))
-    if (!root || !fs.existsSync(abs)) continue
+    if (!root || !fs.existsSync(abs) || used.has(abs.toLowerCase())) continue
+    if (!fs.statSync(abs).isFile()) continue // 只删文件，不整个删文件夹
     await shell.trashItem(abs)
     n++
     // 往上清空文件夹，到统一存放的根文件夹为止

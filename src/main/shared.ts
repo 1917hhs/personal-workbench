@@ -52,6 +52,43 @@ export function scanProject(store: Store, id: string, showHidden = false) {
 
 export const norm = (p: string) => path.resolve(p).toLowerCase()
 
+/** 删除 / 改名 / 移动前的检查：不能是项目根文件夹本身（「.」「a/..」这类写法也会解析成根目录） */
+export function assertNotRoot(store: Store, id: string, absPath: string) {
+  if (norm(absPath) === norm(projectRoot(store, id))) throw new Error('不能对项目根文件夹本身做这个操作')
+}
+
+/**
+ * 项目里的文件 / 文件夹改名或移动之后：备注、颜色、挂在它下面的引用跟着走，
+ * 所有项目里指向它的引用改路径，备忘录和流程里的引用也改过去。
+ */
+export function afterProjectRename(store: Store, id: string, oldRel: string, newRel: string, fromAbs: string, toAbs: string) {
+  const meta = store.meta(id)
+  for (const k of Object.keys(meta.nodes)) {
+    if (k === oldRel || k.startsWith(oldRel + '/')) {
+      meta.nodes[newRel + k.slice(oldRel.length)] = meta.nodes[k]
+      delete meta.nodes[k]
+    }
+  }
+  for (const r of meta.refs) {
+    if (r.parentRel === oldRel || String(r.parentRel).startsWith(oldRel + '/')) r.parentRel = newRel + r.parentRel.slice(oldRel.length)
+  }
+  store.saveMeta(id, meta)
+  const oldAbs = norm(fromAbs)
+  for (const p of store.projects) {
+    const m = store.meta(p.id)
+    let changed = false
+    for (const r of m.refs) {
+      const n = norm(r.path)
+      if (n === oldAbs || n.startsWith(oldAbs + path.sep)) {
+        r.path = toAbs + r.path.slice(fromAbs.length)
+        r.name = path.basename(r.path)
+        changed = true
+      }
+    }
+    if (changed) store.saveMeta(p.id, m)
+  }
+}
+
 export const stripHtml = (h: string) =>
   String(h || '')
     .replace(/<[^>]+>/g, ' ')

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, AppCtx, AppData, Ctx, errMsg, Nav, stageOf, useApp as useAppCtx, ymd } from './lib'
+import { api, AppCtx, AppData, Ctx, errMsg, flushers, Nav, stageOf, useApp as useAppCtx, ymd } from './lib'
 import { AskHost, Modal } from './ui'
 import Home from './pages/Home'
 import Projects from './pages/Projects'
@@ -33,6 +33,17 @@ export default function App() {
   // AI 助手通过 MCP 改了数据：刷新界面并提示
   useEffect(() => {
     const off1 = api.on('data:changed', () => api.call('app:init').then(setDataState))
+    // 关窗口前：让正在编辑的输入框失去焦点（触发它的自动保存），再把编辑器里没到时间的内容存掉
+    const off3 = api.on('app:before-close', async () => {
+      try {
+        ;(document.activeElement as HTMLElement | null)?.blur?.()
+        await new Promise((r) => setTimeout(r, 50))
+        await Promise.all([...flushers].map((f) => Promise.resolve(f()).catch(() => {})))
+        await new Promise((r) => setTimeout(r, 150)) // 失去焦点触发的保存还在路上
+      } finally {
+        api.send('app:flushed')
+      }
+    })
     const off2 = api.on('ai:action', (a: any) => {
       setToastMsg('AI 助手：' + a.summary + (a.canUndo ? '（可在 设置 → 智能体 里撤销）' : ''))
       clearTimeout(toastTimer.current)
@@ -41,6 +52,7 @@ export default function App() {
     return () => {
       off1()
       off2()
+      off3()
     }
   }, [])
 

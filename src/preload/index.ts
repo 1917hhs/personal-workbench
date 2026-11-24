@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 contextBridge.exposeInMainWorld('api', {
   call: (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args),
+  send: (channel: string, ...args: unknown[]) => ipcRenderer.send(channel, ...args),
   on: (channel: string, cb: (...a: unknown[]) => void) => {
     const handler = (_e: unknown, ...a: unknown[]) => cb(...a)
     ipcRenderer.on(channel, handler)

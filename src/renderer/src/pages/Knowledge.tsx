@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, errMsg, fmtTime, uid, useApp, ymd, addDays } from '../lib'
+import { api, errMsg, flushers, fmtTime, uid, useApp, ymd, addDays } from '../lib'
 import { Modal } from '../ui'
 import KbEditor, { KbEditorHandle, pageHref } from './KbEditor'
 import { refsOfHtml } from '../memoNodes'
@@ -205,7 +205,13 @@ function MemoEditor({ page, pages, onSaved, onRemove, onOpen, onCreateTitled, to
     clearTimeout(timer.current)
     timer.current = setTimeout(flush, 700)
   }
-  useEffect(() => () => void flush(), [flush])
+  useEffect(() => {
+    flushers.add(flush)
+    return () => {
+      flushers.delete(flush)
+      void flush()
+    }
+  }, [flush])
 
   // 项目里的文件改名 / 移动后，主进程改好了引用路径：重新载入正文
   useEffect(

@@ -384,7 +384,8 @@ function CompanyPanel({ c, onClose }: { c: any; onClose: () => void }) {
   const { data, saveItem, deleteItem, go, toast } = useApp()
   const [tab, setTab] = useState<'overview' | 'info' | 'contacts' | 'docs' | 'exp' | 'inq'>('overview')
   const [openSub, setOpenSub] = useState<string | null>(null)
-  const save = (patch: any) => saveItem('companies', { ...c, ...patch })
+  // 只传改动的字段：复制附件这类慢操作结束时，不会把这期间改的其他字段用旧值盖回去
+  const save = (patch: any) => saveItem('companies', { id: c.id, ...patch })
   const isSup = c.unitType === '供应商'
   const s = companyStats(data.inquiries, c.id)
   const contacts = data.contacts.filter((x) => x.companyId === c.id)
@@ -444,8 +445,8 @@ function CompanyPanel({ c, onClose }: { c: any; onClose: () => void }) {
   // 删除附件：放在单位文件夹里的移到回收站，别处的原文件只取消关联
   const removeFile = async (key: 'docs' | 'experience', row: any, f: string) => {
     if (!confirm(`删除附件「${f.split(/[\\/]/).pop()}」？放在单位文件夹里的文件会移到回收站。`)) return
+    await setSub(key, sub(key).map((x: any) => (x.id === row.id ? { ...x, files: (x.files || []).filter((y: string) => y !== f) } : x)))
     await api.call('inquiry:trashFiles', [f]).catch(() => 0)
-    setSub(key, sub(key).map((x: any) => (x.id === row.id ? { ...x, files: (x.files || []).filter((y: string) => y !== f) } : x)))
   }
   const docState = (d: any) => (!d.expireDate ? '' : d.expireDate < ymd() ? '已过期' : d.expireDate <= ymd(new Date(Date.now() + 60 * 86400000)) ? '即将到期' : '有效')
 

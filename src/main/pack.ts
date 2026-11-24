@@ -282,9 +282,11 @@ export async function importPack(store: Store, dir: string, o: { password?: stri
     }
     return null
   }
+  // 数据包里的路径不能跳出目标文件夹（「../」之类），防止被改过的数据包写到别处
+  const inside = (t: string) => [store.dataDir, store.libraryDir, ...Object.values(projectDirs)].some((b) => path.resolve(t).toLowerCase().startsWith(path.resolve(b).toLowerCase() + path.sep))
   for (const rel of Object.keys(m.files)) {
     const t = target(rel)
-    if (!t) continue
+    if (!t || !inside(t)) continue
     const src = path.join(dir, ...(rel + (m.encrypted ? '.enc' : '')).split('/'))
     if (!fs.existsSync(src)) continue
     if (m.encrypted) await decryptFile(src, t, key!)

@@ -64,12 +64,16 @@ export function importToLibrary(store: Store, paths: string[], typeId: string) {
 // 资料库文件夹里不算资料的文件：系统文件、Office 临时文件、下载 / 上传中的半成品
 const JUNK = /^(desktop\.ini|thumbs\.db|\.ds_store)$|^~\$|^\.|\.(tmp|partial|crdownload|part)$|\.baiduyun\.(uploading|downloading)\.cfg$/i
 
+// 资料库文件夹下由别的功能管理的子文件夹：没关联项目的询价 / 回价文件、旧版的供应商资料。不算资料库的资料
+const MANAGED = /^(询价文件|回价文件|供应商资料)$/
+
 function listLibraryFiles(root: string) {
   const out: { rel: string; size: number }[] = []
   if (!fs.existsSync(root)) return out
   const walk = (rel: string) => {
     for (const e of fs.readdirSync(path.join(root, rel), { withFileTypes: true })) {
       if (JUNK.test(e.name)) continue
+      if (!rel && e.isDirectory() && MANAGED.test(e.name)) continue
       const r = rel ? rel + '/' + e.name : e.name
       if (e.isDirectory()) walk(r)
       else if (e.isFile()) out.push({ rel: r, size: fs.statSync(path.join(root, r)).size })
@@ -95,7 +99,8 @@ export function scanLibrary(store: Store) {
     if (fs.existsSync(libAbs(store, item))) continue
     const base = path.posix.basename(String(item.file)).toLowerCase()
     const byName = untracked.filter((f) => path.posix.basename(f.rel).toLowerCase() === base)
-    const bySize = item.size ? untracked.filter((f) => f.size === item.size && path.extname(f.rel).toLowerCase() === path.extname(base)) : []
+    // 只按大小认：文件太小容易撞上别的文件，认错了以后删这条资料会把别的文件删掉，所以小文件不按大小认
+    const bySize = item.size >= 8192 ? untracked.filter((f) => f.size === item.size && path.extname(f.rel).toLowerCase() === path.extname(base)) : []
     const hit = byName.length === 1 ? byName[0] : bySize.length === 1 ? bySize[0] : null
     if (hit) {
       item.file = hit.rel
@@ -115,8 +120,9 @@ export function applyLibraryScan(store: Store, removeIds: string[], addRels: str
   const types = store.settings.libraryTypes || []
   const now = new Date().toISOString()
   for (const rel of addRels || []) {
-    const abs = path.join(store.libraryDir, rel)
-    if (!fs.existsSync(abs) || store.library.some((x) => String(x.file).toLowerCase() === rel.toLowerCase())) continue
+    const abs = path.resolve(store.libraryDir, rel)
+    if (!abs.toLowerCase().startsWith(path.resolve(store.libraryDir).toLowerCase() + path.sep)) continue
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile() || store.library.some((x) => String(x.file).toLowerCase() === rel.toLowerCase())) continue
     // 放在哪个类型的子文件夹里，就算哪个类型
     const top = rel.includes('/') ? rel.slice(0, rel.indexOf('/')) : ''
     const type = types.find((t: any) => clean(t.name) === top) || types.find((t: any) => t.name === '其他资料') || types[0]
@@ -144,6 +150,9 @@ export function applyLibraryScan(store: Store, removeIds: string[], addRels: str
 /** 换资料库文件夹：现有文件复制到新位置，原文件夹保留不动 */
 export function moveLibraryDir(store: Store, dir: string) {
   const from = store.libraryDir
+  const a = path.resolve(from).toLowerCase() + path.sep
+  const b = path.resolve(dir).toLowerCase() + path.sep
+  if (a !== b && (b.startsWith(a) || a.startsWith(b))) throw new Error('新的资料库文件夹不能放在原资料库文件夹里面，也不能是它的上级文件夹')
   fs.mkdirSync(dir, { recursive: true })
   if (fs.existsSync(from) && path.resolve(from) !== path.resolve(dir)) fs.cpSync(from, dir, { recursive: true, force: false })
   store.settings.libraryDir = dir

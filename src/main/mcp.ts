@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx'
 import type { Store } from './store'
 import { writeJsonAtomic, readJson } from './store'
 import { compileHide, extOf, safeJoin, scanTree, uniqueTarget } from './files'
-import { hidePatterns, norm, projectRoot, searchAll, stripHtml, upsert } from './shared'
+import { afterProjectRename, assertNotRoot, hidePatterns, norm, projectRoot, searchAll, stripHtml, upsert } from './shared'
 import { listPages, purgePage, savePage } from './kb'
 import { refsWarning, renameProjectRefs } from './memo'
 import { flowSteps, flowText } from './flow'
@@ -400,16 +400,23 @@ function tools(store: Store): Tool[] {
       run: ({ projectId, from, toFolder }) => {
         const src = abs(projectId, from)
         if (!fs.existsSync(src)) throw new Error('找不到：' + from)
+        assertNotRoot(store, projectId, src)
         const dir = abs(projectId, toFolder)
+        if (norm(dir) === norm(src) || norm(dir).startsWith(norm(src) + path.sep)) throw new Error('不能把文件夹移到它自己里面')
+        if (norm(path.dirname(src)) === norm(dir)) return '已经在这个文件夹里了：' + from
         fs.mkdirSync(dir, { recursive: true })
         const dest = uniqueTarget(dir, path.basename(src))
         fs.renameSync(src, dest)
+        const oldRel = relOf(projectId, src)
         const newRel = relOf(projectId, dest)
-        renameProjectRefs(store, projectId, relOf(projectId, src), newRel)
+        renameProjectRefs(store, projectId, oldRel, newRel)
+        afterProjectRename(store, projectId, oldRel, newRel, src, dest)
         record(store, 'move_path', `把「${from}」移到「${newRel}」`, () => {
           if (fs.existsSync(src)) throw new Error('原位置已有同名文件，不能撤销')
           fs.mkdirSync(path.dirname(src), { recursive: true })
           fs.renameSync(dest, src)
+          renameProjectRefs(store, projectId, newRel, oldRel)
+          afterProjectRename(store, projectId, newRel, oldRel, dest, src)
         })
         return '已移动到：' + newRel
       }
@@ -421,11 +428,22 @@ function tools(store: Store): Tool[] {
       inputSchema: obj({ projectId: str, path: str, newName: { ...str, description: '新名字（含扩展名）' } }, ['projectId', 'path', 'newName']),
       run: ({ projectId, path: rel, newName }) => {
         const src = abs(projectId, rel)
-        const dest = path.join(path.dirname(src), String(newName).replace(/[\\/:*?"<>|]/g, '_'))
-        if (fs.existsSync(dest)) throw new Error('已有同名文件：' + newName)
+        if (!fs.existsSync(src)) throw new Error('找不到：' + rel)
+        assertNotRoot(store, projectId, src)
+        const name = String(newName || '').replace(/[\\/:*?"<>|]/g, '_').trim().replace(/[. ]+$/, '')
+        if (!name) throw new Error('新名字不能为空')
+        const dest = path.join(path.dirname(src), name)
+        if (fs.existsSync(dest) && norm(dest) !== norm(src)) throw new Error('已有同名文件：' + newName)
         fs.renameSync(src, dest)
-        renameProjectRefs(store, projectId, relOf(projectId, src), relOf(projectId, dest))
-        record(store, 'rename_path', `把「${rel}」改名为「${path.basename(dest)}」`, () => fs.renameSync(dest, src))
+        const oldRel = relOf(projectId, src)
+        const newRel = relOf(projectId, dest)
+        renameProjectRefs(store, projectId, oldRel, newRel)
+        afterProjectRename(store, projectId, oldRel, newRel, src, dest)
+        record(store, 'rename_path', `把「${rel}」改名为「${path.basename(dest)}」`, () => {
+          fs.renameSync(dest, src)
+          renameProjectRefs(store, projectId, newRel, oldRel)
+          afterProjectRename(store, projectId, newRel, oldRel, dest, src)
+        })
         return '已改名为：' + relOf(projectId, dest)
       }
     },
@@ -436,8 +454,10 @@ function tools(store: Store): Tool[] {
       inputSchema: obj({ projectId: str, path: str }, ['projectId', 'path']),
       run: async ({ projectId, path: rel }) => {
         if (!rel) throw new Error('不能删除项目根文件夹')
-        const warn = refsWarning(store, { kind: 'proj', pid: projectId, rel: String(rel).replace(/\\/g, '/').replace(/\/+$/, '') })
-        await shell.trashItem(abs(projectId, rel))
+        const target = abs(projectId, rel)
+        assertNotRoot(store, projectId, target)
+        const warn = refsWarning(store, { kind: 'proj', pid: projectId, rel: relOf(projectId, target) })
+        await shell.trashItem(target)
         record(store, 'trash_path', `把「${rel}」移到了系统回收站（可在回收站还原）`)
         return '已移到回收站：' + rel + (warn ? '。' + warn + '请告诉用户。' : '')
       }

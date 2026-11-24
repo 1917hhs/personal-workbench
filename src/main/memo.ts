@@ -65,8 +65,25 @@ export function saveMedia(store: Store, owner: string, name: string, data: Array
   return { name: n, url: mediaUrl(owner, n), kind: kind || mediaKind(n) }
 }
 
+/**
+ * 彻底删除一条备忘录的图片、录音、附件。图片可能被复制粘贴到了别的备忘录里（地址还指向这里），
+ * 这种还在别处用着的文件保留，只删没人用的。
+ */
 export function purgeMedia(store: Store, owner: string) {
-  fs.rmSync(path.join(mediaRoot(store), safe(owner)), { recursive: true, force: true })
+  const dir = path.join(mediaRoot(store), safe(owner))
+  if (!fs.existsSync(dir)) return
+  const prefix = mediaUrl(owner, '')
+  const used = new Set<string>()
+  for (const p of listPages(store)) {
+    if (p.id === owner) continue
+    const html = String(p.html || '').replace(/&amp;/g, '&')
+    for (let i = html.indexOf(prefix); i >= 0; i = html.indexOf(prefix, i + 1)) {
+      const m = html.slice(i + prefix.length).match(/^[^"'\s)<>]*/)
+      if (m) used.add(decodeURIComponent(m[0]))
+    }
+  }
+  if (!used.size) return void fs.rmSync(dir, { recursive: true, force: true })
+  for (const f of fs.readdirSync(dir)) if (!used.has(f)) fs.rmSync(path.join(dir, f), { recursive: true, force: true })
 }
 
 // ---------- 引用 ----------

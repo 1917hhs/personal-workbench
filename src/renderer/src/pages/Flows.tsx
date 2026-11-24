@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, errMsg, uid, useApp } from '../lib'
+import { api, errMsg, flushers, uid, useApp } from '../lib'
 import { Empty, Tabs } from '../ui'
 import RefPicker from './RefPicker'
 
@@ -219,24 +219,32 @@ function FlowEditor({ flow, onDelete }: { flow: Flow; onDelete: () => void }) {
   const fRef = useRef(f)
   fRef.current = f
   const saveTimer = useRef<any>(null)
+  const pendingRef = useRef<Flow | null>(null)
   const lastSaved = useRef(flow.updatedAt)
 
   // 保存：改完停 0.5 秒再存
-  const persist = (next: Flow) => {
+  const saveNow = async () => {
+    if (!saveTimer.current) return
     clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(async () => {
-      const x = { ...next, updatedAt: now() }
-      lastSaved.current = x.updatedAt
-      try {
-        await saveItem('flows', x)
-      } catch {}
-    }, 500)
+    saveTimer.current = null
+    const x = { ...(pendingRef.current || fRef.current), updatedAt: now() }
+    pendingRef.current = null
+    lastSaved.current = x.updatedAt
+    try {
+      await saveItem('flows', x)
+    } catch {}
   }
-  useEffect(() => () => {
-    // 离开时把没存的存掉
-    if (saveTimer.current) {
-      clearTimeout(saveTimer.current)
-      saveItem('flows', { ...fRef.current, updatedAt: now() }).catch(() => {})
+  const persist = (next: Flow) => {
+    pendingRef.current = next
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(saveNow, 500)
+  }
+  useEffect(() => {
+    // 关窗口前、离开时把没存的存掉
+    flushers.add(saveNow)
+    return () => {
+      flushers.delete(saveNow)
+      void saveNow()
     }
   }, [])
   // 别处改了（如项目文件改名后引用路径更新），没在编辑时就同步过来

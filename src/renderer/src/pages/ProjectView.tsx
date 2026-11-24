@@ -240,6 +240,8 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
   const selNode = full && selected !== null ? findNode(full, selected) : null
 
   const onKey = (e: React.KeyboardEvent) => {
+    // 在输入框里打字时（备注、搜索）按 Delete / Enter / Tab 不能当成对文件的操作
+    if ((e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return
     if (!selNode || selNode.virtual) return
     if (e.key === 'Delete') trash(selNode)
     else if (e.key === 'F2' && selNode.rel) rename(selNode)

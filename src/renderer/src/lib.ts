@@ -4,6 +4,7 @@ declare global {
   interface Window {
     api: {
       call: (channel: string, ...args: any[]) => Promise<any>
+      send: (channel: string, ...args: any[]) => void
       on: (channel: string, cb: (...a: any[]) => void) => () => void
       pathForFile: (f: File) => string
       startDrag: (id: string, rel: string) => void
@@ -218,6 +219,9 @@ export const normPath = (p: string) => p.replace(/\//g, '\\').replace(/\\+$/, ''
 
 /** 「复制为引用」的内容：项目里或资料库里都可以复制，再到项目文件夹上「粘贴引用」 */
 export const clip = { ref: null as string | null }
+
+/** 关窗口前要先存掉的东西（编辑器里还没到时间自动保存的内容）。关窗口时主进程会等它们都存完 */
+export const flushers = new Set<() => Promise<any> | void>()
 
 export const AppCtx = createContext<Ctx>(null as any)
 export const useApp = () => useContext(AppCtx)

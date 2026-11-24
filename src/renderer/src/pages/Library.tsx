@@ -94,6 +94,7 @@ export default function Library({ focusId }: { focusId?: string }) {
   }
 
   const onKey = (e: React.KeyboardEvent) => {
+    if ((e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return
     const i = list.findIndex((x) => x.id === sel)
     if (e.key === 'ArrowDown') {
       e.preventDefault()
