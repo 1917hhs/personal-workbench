@@ -1,0 +1,26 @@
+node_modules/
+out/
+dist/
+release/
+*.log
+backup.config.json
+
+# 个人数据：防止数据文件夹被设到源码目录时误提交
+/projects.json
+/todos.json
+/stickies.json
+/settings.json
+/contacts.json
+/companies.json
+/inquiries.json
+/reviews.json
+/library.json
+/focus.json
+/cards.json
+/ai-log.json
+/meta/
+/kb/
+/diary/
+/ai-backup/
+/数据快照/
+/release-tmp/
