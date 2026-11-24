@@ -26,6 +26,53 @@ export default function Library({ focusId }: { focusId?: string }) {
 
   const cur = library.find((x) => x.id === sel)
 
+  // 对照资料库文件夹：文件被删了的标红，在文件夹里挪动 / 改名的自动更新路径
+  const [missing, setMissing] = useState<Set<string>>(new Set())
+  const [untracked, setUntracked] = useState<string[]>([])
+  const scan = async () => {
+    const r = await api.call('library:scan')
+    if (r.moved.length) setData({ library: r.library })
+    setMissing(new Set(r.missing.map((x: any) => x.id)))
+    setUntracked(r.untracked)
+    return r
+  }
+  useEffect(() => {
+    scan().catch(() => {})
+    // 从资源管理器切回来时再查一次
+    const f = () => scan().catch(() => {})
+    window.addEventListener('focus', f)
+    return () => window.removeEventListener('focus', f)
+  }, [data.libraryDir])
+
+  const refresh = async () => {
+    try {
+      const r = await scan()
+      const done: string[] = []
+      if (r.moved.length) done.push(`${r.moved.length} 份在文件夹里被挪动或改名，已更新位置`)
+      let removeIds: string[] = []
+      if (r.missing.length) {
+        const refs = (await Promise.all(r.missing.map((x: any) => api.call('memo:findRefs', { kind: 'lib', id: x.id }).catch(() => [])))).flat()
+        const names = r.missing.slice(0, 10).map((x: any) => `· ${x.code ? x.code + ' ' : ''}${x.name}`).join('\n') + (r.missing.length > 10 ? `\n…等 ${r.missing.length} 份` : '')
+        if (confirm(`下面 ${r.missing.length} 份资料的文件已经不在资料库文件夹里了：\n${names}\n\n从资料库列表里移除它们？${refWarn(refs)}`)) removeIds = r.missing.map((x: any) => x.id)
+      }
+      let addRels: string[] = []
+      if (r.untracked.length) {
+        const names = r.untracked.slice(0, 10).map((x: string) => '· ' + x).join('\n') + (r.untracked.length > 10 ? `\n…等 ${r.untracked.length} 个` : '')
+        if (confirm(`资料库文件夹里有 ${r.untracked.length} 个文件还没登记在资料库里：\n${names}\n\n把它们加进资料库？（按所在的子文件夹归类）`)) addRels = r.untracked
+      }
+      if (removeIds.length || addRels.length) {
+        setData({ library: await api.call('library:applyScan', removeIds, addRels) })
+        if (removeIds.length) done.push(`移除 ${removeIds.length} 份`)
+        if (addRels.length) done.push(`新加入 ${addRels.length} 份`)
+        if (removeIds.includes(sel || '')) setSel(null)
+        await scan()
+      }
+      toast(done.length ? done.join('；') : r.missing.length || r.untracked.length ? '没有改动' : '资料库和文件夹一致，没有需要更新的')
+    } catch (e) {
+      toast(errMsg(e))
+    }
+  }
+
   const importPaths = async (paths: string[]) => {
     if (!paths.length) return
     try {
@@ -67,6 +114,9 @@ export default function Library({ focusId }: { focusId?: string }) {
         <h1>资料库</h1>
         <input className="input" style={{ width: 280 }} placeholder="搜索名称、编号、标签、备注…" value={q} onChange={(e) => setQ(e.target.value)} />
         <span className="spacer" />
+        <button className="btn" title="对照资料库文件夹：移除文件已被删除的资料，登记直接放进文件夹的新文件" onClick={refresh}>
+          ⟳ 刷新
+        </button>
         <button className="btn" onClick={() => api.call('shell:openPath', data.libraryDir)}>打开资料库文件夹</button>
         <button className="btn primary" onClick={async () => setData({ library: await api.call('library:pickImport', type || types[0]?.id) })}>
           + 导入资料
@@ -110,6 +160,13 @@ export default function Library({ focusId }: { focusId?: string }) {
         </div>
 
         <div className="lib-list" tabIndex={0} onKeyDown={onKey} ref={listRef}>
+          {(missing.size > 0 || untracked.length > 0) && (
+            <div className="lib-sync">
+              {missing.size > 0 && <span>⚠ {missing.size} 份资料的文件已经不在了</span>}
+              {untracked.length > 0 && <span>📥 文件夹里有 {untracked.length} 个新文件没登记</span>}
+              <button className="btn small primary" onClick={refresh}>刷新整理</button>
+            </div>
+          )}
           {dragging && <div className="drop-hint">松开即可导入到「{typeName(type) || typeName(types[0]?.id)}」</div>}
           {library.length === 0 ? (
             <Empty title="规范、模板、收集的数据，放一处，所有项目都能用" text="点右上角「导入资料」，或者直接把文件、文件夹拖到这里。文件会复制进资料库文件夹，原文件以后移动、删除都不影响。规范文件名里的编号（如 GB 50201-2014）会自动识别。" />
@@ -117,7 +174,7 @@ export default function Library({ focusId }: { focusId?: string }) {
             <Empty title="没有符合条件的资料" />
           ) : (
             list.map((x) => (
-              <div key={x.id} className={'lib-row' + (sel === x.id ? ' on' : '')} onClick={() => setSel(x.id)} onDoubleClick={() => api.call('library:abs', x.id).then((p) => p && api.call('shell:openPath', p))}>
+              <div key={x.id} className={'lib-row' + (sel === x.id ? ' on' : '') + (missing.has(x.id) ? ' gone' : '')} onClick={() => setSel(x.id)} onDoubleClick={() => api.call('library:abs', x.id).then((p) => p && api.call('shell:openPath', p))}>
                 <FileBadge name={x.file} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="nm">
@@ -128,6 +185,7 @@ export default function Library({ focusId }: { focusId?: string }) {
                     {[typeName(x.type), x.date, ...(x.tags || [])].filter(Boolean).join(' · ')}
                     {x.status === '已废止' && <span className="tag red" style={{ marginLeft: 6 }}>已废止{x.supersededBy ? `，被 ${x.supersededBy} 替代` : ''}</span>}
                     {x.status === '待实施' && <span className="tag amber" style={{ marginLeft: 6 }}>待实施</span>}
+                    {missing.has(x.id) && <span className="tag red" style={{ marginLeft: 6 }}>文件已不在</span>}
                   </div>
                 </div>
               </div>

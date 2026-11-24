@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx'
 import type { Kind, Store } from './store'
 import { importPaths, previewData, safeJoin } from './files'
 import { storeInquiryFiles, trashInquiryFiles } from './procure'
-import { importToLibrary, libAbs, moveLibraryDir } from './library'
+import { applyLibraryScan, importToLibrary, libAbs, moveLibraryDir, scanLibrary } from './library'
 import { listHistory, listPages, purgePage, readVersion, savePage } from './kb'
 import { exportPack, importPack, packInfo } from './pack'
 import { fileIndex, norm, projectRoot, refStatus, scanProject, searchAll, upsert } from './shared'
@@ -569,6 +569,8 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     store.save('library')
     return store.library
   })
+  h('library:scan', () => scanLibrary(store))
+  h('library:applyScan', (removeIds: string[], addRels: string[]) => applyLibraryScan(store, removeIds, addRels))
   h('library:abs', (id: string) => {
     const item = store.library.find((x) => x.id === id)
     return item ? libAbs(store, item) : null

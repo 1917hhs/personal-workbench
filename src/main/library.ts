@@ -61,6 +61,86 @@ export function importToLibrary(store: Store, paths: string[], typeId: string) {
   return added
 }
 
+// 资料库文件夹里不算资料的文件：系统文件、Office 临时文件、下载 / 上传中的半成品
+const JUNK = /^(desktop\.ini|thumbs\.db|\.ds_store)$|^~\$|^\.|\.(tmp|partial|crdownload|part)$|\.baiduyun\.(uploading|downloading)\.cfg$/i
+
+function listLibraryFiles(root: string) {
+  const out: { rel: string; size: number }[] = []
+  if (!fs.existsSync(root)) return out
+  const walk = (rel: string) => {
+    for (const e of fs.readdirSync(path.join(root, rel), { withFileTypes: true })) {
+      if (JUNK.test(e.name)) continue
+      const r = rel ? rel + '/' + e.name : e.name
+      if (e.isDirectory()) walk(r)
+      else if (e.isFile()) out.push({ rel: r, size: fs.statSync(path.join(root, r)).size })
+    }
+  }
+  walk('')
+  return out
+}
+
+/**
+ * 对照资料库文件夹检查列表：
+ * - 文件在资料库文件夹里被挪动 / 改名（同名或同大小只有一个能对上）→ 直接更新路径
+ * - 文件找不到了 → missing，交给界面问要不要从列表里移除
+ * - 文件夹里有、列表里没有的文件 → untracked，交给界面问要不要加进来
+ */
+export function scanLibrary(store: Store) {
+  const files = listLibraryFiles(store.libraryDir)
+  const known = new Set(store.library.map((x) => String(x.file).toLowerCase()))
+  let untracked = files.filter((f) => !known.has(f.rel.toLowerCase()))
+  const moved: string[] = []
+  const missing: any[] = []
+  for (const item of store.library) {
+    if (fs.existsSync(libAbs(store, item))) continue
+    const base = path.posix.basename(String(item.file)).toLowerCase()
+    const byName = untracked.filter((f) => path.posix.basename(f.rel).toLowerCase() === base)
+    const bySize = item.size ? untracked.filter((f) => f.size === item.size && path.extname(f.rel).toLowerCase() === path.extname(base)) : []
+    const hit = byName.length === 1 ? byName[0] : bySize.length === 1 ? bySize[0] : null
+    if (hit) {
+      item.file = hit.rel
+      item.updatedAt = new Date().toISOString()
+      untracked = untracked.filter((f) => f !== hit)
+      moved.push(item.name)
+    } else missing.push({ id: item.id, name: item.name, code: item.code || '', file: item.file })
+  }
+  if (moved.length) store.save('library')
+  return { missing, untracked: untracked.map((f) => f.rel), moved, library: store.library }
+}
+
+/** 按检查结果整理：移除文件已不在的条目；把文件夹里新放进来的文件登记成资料（不再复制） */
+export function applyLibraryScan(store: Store, removeIds: string[], addRels: string[]) {
+  const rm = new Set(removeIds || [])
+  store.library = store.library.filter((x) => !rm.has(x.id))
+  const types = store.settings.libraryTypes || []
+  const now = new Date().toISOString()
+  for (const rel of addRels || []) {
+    const abs = path.join(store.libraryDir, rel)
+    if (!fs.existsSync(abs) || store.library.some((x) => String(x.file).toLowerCase() === rel.toLowerCase())) continue
+    // 放在哪个类型的子文件夹里，就算哪个类型
+    const top = rel.includes('/') ? rel.slice(0, rel.indexOf('/')) : ''
+    const type = types.find((t: any) => clean(t.name) === top) || types.find((t: any) => t.name === '其他资料') || types[0]
+    const { code, name } = parseName(path.basename(rel))
+    store.library.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      name,
+      code,
+      type: type?.id,
+      date: '',
+      tags: [],
+      status: '现行',
+      supersededBy: '',
+      note: '',
+      file: rel,
+      size: fs.statSync(abs).size,
+      createdAt: now,
+      updatedAt: now
+    })
+  }
+  store.save('library')
+  return store.library
+}
+
 /** 换资料库文件夹：现有文件复制到新位置，原文件夹保留不动 */
 export function moveLibraryDir(store: Store, dir: string) {
   const from = store.libraryDir
