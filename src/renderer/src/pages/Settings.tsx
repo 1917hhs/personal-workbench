@@ -661,6 +661,7 @@ const PACK_CATS: [string, string, string][] = [
   ['projectFiles', '项目文件夹', '每个项目文件夹里的图纸、报告、照片原样复制，文件多时会很大'],
   ['tasks', '待办与便签', '待办、便签、专注记录'],
   ['kb', '备忘录', '备忘录正文和里面的图片、录音、视频（历史版本可另选）'],
+  ['flows', '工作流程', '审批流程图、审批人、所需附件'],
   ['contacts', '通讯录与询价', '联系人、单位与供应商、询价记录。有别人的电话，建议设密码'],
   ['library', '资料库', '资料目录和文件本身'],
   ['settings', '设置', '阶段、模板、外观等']
@@ -669,7 +670,7 @@ const PRESETS: [string, string[]][] = [
   ['全部', PACK_CATS.map((c) => c[0])],
   ['全部（不含项目文件）', PACK_CATS.map((c) => c[0]).filter((c) => c !== 'projectFiles')],
   ['只要项目', ['projects', 'projectFiles', 'tasks']],
-  ['备忘录与资料库', ['kb', 'library']]
+  ['备忘录与资料库', ['kb', 'flows', 'library']]
 ]
 
 /** 备份与分享：按类别一键备份，或导出给别人 / 带到另一台电脑 */

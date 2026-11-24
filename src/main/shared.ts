@@ -3,6 +3,7 @@ import path from 'path'
 import type { Store } from './store'
 import { compileHide, scanTree } from './files'
 import { listPages } from './kb'
+import { flowText } from './flow'
 
 // 界面（ipc.ts）和 AI 接口（mcp.ts）共用的辅助函数
 
@@ -61,7 +62,7 @@ export const stripHtml = (h: string) =>
 
 export function searchAll(store: Store, query: string) {
   const q = (query || '').trim().toLowerCase()
-  if (!q) return { projects: [], todos: [], files: [], notes: [], contacts: [], reviews: [], library: [], pages: [] }
+  if (!q) return { projects: [], todos: [], files: [], notes: [], contacts: [], reviews: [], library: [], pages: [], flows: [] }
   const has = (s: any) => String(s || '').toLowerCase().includes(q)
   const projects = store.projects.filter((p) => has(p.name) || has(p.code) || has(p.client) || has(p.location) || has(p.description)).slice(0, 10)
   const todos = store.todos.filter((t) => has(t.title)).slice(0, 10)
@@ -89,5 +90,13 @@ export function searchAll(store: Store, query: string) {
       const i = p.text.toLowerCase().indexOf(q)
       return { id: p.id, title: p.title, snippet: i >= 0 ? p.text.slice(Math.max(0, i - 15), i + 40).trim() : '' }
     })
-  return { projects, todos, files, notes: notes.slice(0, 20), contacts, reviews, library, pages }
+  const flows = store.flows
+    .map((f) => ({ f, text: flowText(f) }))
+    .filter((x) => has(x.text))
+    .slice(0, 10)
+    .map(({ f, text }) => {
+      const i = text.toLowerCase().indexOf(q)
+      return { id: f.id, name: f.name || '未命名流程', snippet: i >= 0 ? text.slice(Math.max(0, i - 15), i + 40).trim() : '' }
+    })
+  return { projects, todos, files, notes: notes.slice(0, 20), contacts, reviews, library, pages, flows }
 }

@@ -120,9 +120,9 @@ export function writeJsonAtomic(file: string, data: unknown) {
   fs.renameSync(tmp, file)
 }
 
-export type Kind = 'projects' | 'todos' | 'stickies' | 'settings' | 'contacts' | 'reviews' | 'library' | 'focus' | 'cards' | 'companies' | 'inquiries'
+export type Kind = 'projects' | 'todos' | 'stickies' | 'settings' | 'contacts' | 'reviews' | 'library' | 'focus' | 'cards' | 'companies' | 'inquiries' | 'flows'
 
-const KINDS: Kind[] = ['projects', 'todos', 'stickies', 'settings', 'contacts', 'reviews', 'library', 'focus', 'cards', 'companies', 'inquiries']
+const KINDS: Kind[] = ['projects', 'todos', 'stickies', 'settings', 'contacts', 'reviews', 'library', 'focus', 'cards', 'companies', 'inquiries', 'flows']
 
 /** 数据文件夹里软件认识的全部内容。备份、搬家、导出都只处理这些，别的文件一概不碰 */
 export const DATA_FILES = [...KINDS.map((k) => k + '.json'), 'ai-log.json', 'profile.json']
@@ -176,6 +176,8 @@ export class Store {
   cards: any[] = []
   companies: any[] = []
   inquiries: any[] = []
+  /** 工作流程图（审批流程）：节点、连线、审批人、所需附件 */
+  flows: any[] = []
   settings: any = structuredClone(DEFAULT_SETTINGS)
 
   constructor() {
@@ -237,6 +239,7 @@ export class Store {
     this.cards = readJson(this.file('cards.json'), [])
     this.companies = readJson(this.file('companies.json'), [])
     this.inquiries = readJson(this.file('inquiries.json'), [])
+    this.flows = readJson(this.file('flows.json'), [])
     this.migrateContacts()
     const s = readJson<any>(this.file('settings.json'), {})
     this.settings = {

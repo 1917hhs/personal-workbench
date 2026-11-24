@@ -11,6 +11,7 @@ import { compileHide, extOf, safeJoin, scanTree, uniqueTarget } from './files'
 import { hidePatterns, norm, projectRoot, searchAll, stripHtml, upsert } from './shared'
 import { listPages, purgePage, savePage } from './kb'
 import { refsWarning, renameProjectRefs } from './memo'
+import { flowSteps, flowText } from './flow'
 import { importToLibrary, libAbs } from './library'
 import { getProfile, profileMarkdown, revertChange, saveSection } from './profile'
 import { afterQuote, companyStats, INQ_STATUS, latestQuotes, normName, QUOTE_FIELDS, SEND_STATUS, storeInquiryFiles, TAX, toUsd, validToFrom } from './procure'
@@ -743,6 +744,34 @@ function tools(store: Store): Tool[] {
       }
     },
     {
+      name: 'list_flows',
+      description: '列出用户记录的工作流程 / 审批流程（如采购付款审批、合同用印、报销）。返回名称、说明、步骤数。用户问「XX 要找谁审批」「要交什么材料」时先用它找到流程，再用 get_flow 看详情。',
+      inputSchema: obj({ query: { ...str, description: '关键词，会在流程名、步骤名、审批人、附件名里找' } }),
+      run: ({ query }) => {
+        const q = String(query || '').trim().toLowerCase()
+        return store.flows
+          .filter((f) => !q || flowText(f).toLowerCase().includes(q))
+          .map((f) => ({ id: f.id, name: f.name || '', desc: f.desc || '', steps: flowSteps(f).length, updatedAt: f.updatedAt || '' }))
+      }
+    },
+    {
+      name: 'get_flow',
+      description: '查看一个工作流程的完整步骤清单（按先后顺序）：每一步属于哪个分组、找谁审批（姓名、岗位，通讯录里有的附电话）、要交哪些附件（是否必交、模板文件）、时限、注意事项，以及下一步和走向下一步的条件。',
+      inputSchema: obj({ flowId: str }, ['flowId']),
+      run: ({ flowId }) => {
+        const f = store.flows.find((x) => x.id === flowId)
+        if (!f) throw new Error('找不到流程：' + flowId + '。先用 list_flows 查')
+        const who = (p: any) => {
+          const c = p.contactId ? store.contacts.find((x) => x.id === p.contactId) : null
+          return { name: p.name, role: p.role, ...(c ? { org: c.org || '', phone: c.phone || '', email: c.email || '' } : {}) }
+        }
+        return {
+          name: f.name || '',
+          desc: f.desc || '',
+          steps: flowSteps(f).map((s) => ({ ...s, approvers: s.approvers.map(who), next: s.next.map((n) => ({ ...n, approvers: n.approvers.map(who) })) }))
+        }
+      }
+    },    {
       name: 'list_inquiries',
       description: '列出询价（一条询价 = 一个项目的一个专业包）。返回所属项目、专业、状态、币种、回价截止、发包家数、回价家数、目前最低价。可按项目、状态、关键词筛选。',
       inputSchema: obj({ projectId: str, status: { ...str, description: INQ_STATUS.join(' / ') }, query: str }),

@@ -9,6 +9,7 @@ import Settings from './pages/Settings'
 import Contacts from './pages/Contacts'
 import Library from './pages/Library'
 import Knowledge from './pages/Knowledge'
+import Flows from './pages/Flows'
 import MapPage from './pages/MapPage'
 import { FocusWidget } from './pages/Focus'
 import Inquiries from './pages/Inquiries'
@@ -132,6 +133,7 @@ export default function App() {
           {navBtn('contacts', '通讯录与单位', ctx.data.contacts.length)}
           {navBtn('inquiries', '询价', ctx.data.inquiries.filter((x) => ['编制中', '询价中', '比价中'].includes(x.status)).length)}
           {navBtn('map', '地图')}
+          {navBtn('flows', '流程', ctx.data.flows?.length)}
           {navBtn('settings', '设置')}
           {starred.length > 0 && <div className="side-sub">星标项目</div>}
           {starred.map((p) => (
@@ -154,6 +156,7 @@ export default function App() {
           {nav.page === 'contacts' && <Contacts key={(nav.contactId || '') + (nav.companyId || '')} focusId={nav.contactId} companyId={nav.companyId} />}
           {nav.page === 'library' && <Library key={nav.libraryId || ''} focusId={nav.libraryId} />}
           {nav.page === 'kb' && <Knowledge key={nav.pageId || ''} pageId={nav.pageId} />}
+          {nav.page === 'flows' && <Flows key={nav.flowId || ''} focusId={nav.flowId} />}
           {nav.page === 'map' && <MapPage key={nav.projectId || ''} focusId={nav.projectId} />}
           {nav.page === 'inquiries' && <Inquiries key={nav.inquiryId || ''} focusId={nav.inquiryId} />}
           {nav.page === 'settings' && <Settings key={nav.settingsSection || ''} section={nav.settingsSection} />}
@@ -169,7 +172,7 @@ export default function App() {
 function SearchDialog({ onClose }: { onClose: () => void }) {
   const { go } = useAppCtx()
   const [q, setQ] = useState('')
-  const [r, setR] = useState<any>({ projects: [], todos: [], files: [], notes: [], contacts: [], reviews: [], library: [], pages: [] })
+  const [r, setR] = useState<any>({ projects: [], todos: [], files: [], notes: [], contacts: [], reviews: [], library: [], pages: [], flows: [] })
   const { data } = useAppCtx()
   useEffect(() => {
     const t = setTimeout(() => api.call('search', q).then(setR), 120)
@@ -179,7 +182,7 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
     go(n)
     onClose()
   }
-  const total = r.projects.length + r.todos.length + r.files.length + r.notes.length + r.contacts.length + r.reviews.length + r.library.length + r.pages.length
+  const total = r.projects.length + r.todos.length + r.files.length + r.notes.length + r.contacts.length + r.reviews.length + r.library.length + r.pages.length + (r.flows?.length || 0)
   return (
     <Modal title="搜索项目、文件、备注、待办" onClose={onClose} width={640}>
       <input autoFocus className="input search-input" placeholder="输入关键词…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -215,6 +218,13 @@ function SearchDialog({ onClose }: { onClose: () => void }) {
         <button key={p.id} className="sr-item" onClick={() => pick({ page: 'kb', pageId: p.id })}>
           {p.title || '无标题'}
           <span className="faint">{p.snippet}</span>
+        </button>
+      ))}
+      {r.flows?.length > 0 && <div className="sr-group">工作流程</div>}
+      {(r.flows || []).map((x: any) => (
+        <button key={x.id} className="sr-item" onClick={() => pick({ page: 'flows', flowId: x.id })}>
+          {x.name}
+          <span className="faint">{x.snippet}</span>
         </button>
       ))}
       {r.library.length > 0 && <div className="sr-group">资料库</div>}

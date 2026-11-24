@@ -655,3 +655,82 @@ tr.drop-row.over td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .lib-sync .btn { margin-left: auto; }
 .lib-row.gone .nm { color: var(--text-3); text-decoration: line-through; }
 @media (prefers-color-scheme: dark) { .lib-sync { background: #3b3423; color: #fcd34d; } }
+/* ---------- 工作流程 ---------- */
+.flow-wrap { flex: 1; display: flex; min-height: 0; height: 100%; }
+.flow-side { width: 260px; flex: none; border-right: 1px solid var(--line); background: var(--panel); padding: 12px 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.flow-list { flex: 1; overflow: auto; }
+.flow-item { padding: 9px 10px; border-radius: 10px; cursor: pointer; margin-bottom: 2px; }
+.flow-item:hover { background: var(--hover); }
+.flow-item.on { background: #ccfbf1; }
+.flow-item-t { font-weight: 600; font-size: 14px; }
+.flow-item-s { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.flow-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.flow-editor { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.flow-head { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.flow-name { flex: 1; border: 0; outline: none; background: none; font-size: 18px; font-weight: 700; color: var(--text); }
+.flow-body { flex: 1; display: flex; min-height: 0; }
+.flow-canvas { flex: 1; position: relative; overflow: hidden; outline: none; cursor: grab; background-color: var(--map-bg); background-image: radial-gradient(var(--map-dot) 1.1px, transparent 1.3px); }
+.flow-canvas.panning { cursor: grabbing; }
+.flow-inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.flow-edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.fedge-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: pointer; }
+.fedge-label { position: absolute; transform: translate(-50%, -50%); background: var(--panel); border: 1px solid #99f6e4; border-radius: 6px; padding: 1px 6px; font-size: 11.5px; color: #0f766e; white-space: nowrap; cursor: pointer; z-index: 2; }
+.fedge-label.on { border-color: var(--accent); color: var(--accent); }
+.fedge-label .fb { margin-left: 4px; color: var(--text-3); }
+
+.fnode { position: absolute; box-sizing: border-box; display: flex; align-items: center; justify-content: center; text-align: center; border-radius: 6px; cursor: move; user-select: none; }
+.fnode-step { background: var(--panel); border: 1.5px solid #5eead4; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05); font-size: 13.5px; font-weight: 600; color: var(--text); padding: 0 8px; z-index: 3; }
+.fnode-step.c-blue { background: #e0f2fe; border-color: #7dd3fc; color: #0369a1; }
+.fnode-step.c-green { background: #dcfce7; border-color: #86efac; color: #15803d; }
+.fnode-step.c-amber { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+.fnode-step.c-red { background: #fee2e2; border-color: #fca5a5; color: #b91c1c; }
+.fnode-step.c-purple { background: #ede9fe; border-color: #c4b5fd; color: #6d28d9; }
+.fnode-title { z-index: 3; font-weight: 700; font-size: 14px; border-radius: 6px; }
+.fnode-title.c-teal, .fnode-title:not(.c-light) { background: #14a89a; color: #fff; border: 1px solid #0f9488; font-size: 15px; }
+.fnode-title.c-light { background: #f0fdfa; color: #0f766e; border: 1px solid #5eead4; }
+.fnode-group { border: 1.5px dashed #5eead4; border-radius: 8px; background: rgba(240, 253, 250, 0.35); align-items: flex-start; justify-content: flex-start; z-index: 1; }
+.fnode-glabel { font-size: 12px; color: #0f766e; font-weight: 600; padding: 4px 8px; }
+.fnode.sel { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fnode-label { overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
+.fnode-badges { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px); display: flex; gap: 6px; white-space: nowrap; font-size: 10.5px; font-weight: 400; color: var(--text-2); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; pointer-events: none; }
+.fnode-resize { position: absolute; right: -5px; bottom: -5px; width: 10px; height: 10px; background: var(--accent); border-radius: 2px; cursor: nwse-resize; }
+.fnode-link { position: absolute; right: -7px; top: 50%; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%; background: var(--panel); border: 2px solid #14a89a; cursor: crosshair; opacity: 0; transition: opacity 0.12s; }
+.fnode:hover .fnode-link, .fnode.sel .fnode-link { opacity: 1; }
+
+.flow-tools { position: absolute; left: 14px; top: 12px; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.flow-tools button { border: 0; background: none; padding: 5px 9px; border-radius: 8px; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.flow-tools button:hover { background: var(--hover); color: var(--text); }
+.flow-tools .pct { min-width: 48px; font-size: 12px; }
+.flow-tools .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+.flow-help { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 5px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--text-2); font-size: 11.5px; white-space: nowrap; max-width: calc(100% - 40px); overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+
+.flow-panel { width: 330px; flex: none; border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 14px 16px; }
+.fp-title { font-weight: 700; font-size: 15px; margin-bottom: 8px; display: block; }
+.fp-tip { margin-top: 16px; font-size: 12.5px; line-height: 1.9; color: var(--text-2); background: var(--bg); border-radius: 10px; padding: 10px 12px; }
+.fp-row { border: 1px solid var(--line); border-radius: 8px; padding: 6px; margin-bottom: 6px; }
+.fp-contact { font-size: 11.5px; color: var(--accent); margin: 4px 2px 0; }
+.fp-check { display: flex; align-items: center; gap: 3px; font-size: 12px; white-space: nowrap; color: var(--text-2); }
+.fp-ref { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-swatch { width: 26px; height: 26px; border-radius: 6px; border: 1.5px solid var(--line-2); cursor: pointer; background: var(--panel); }
+.fp-swatch.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fp-swatch.c-blue { background: #e0f2fe; border-color: #7dd3fc; }
+.fp-swatch.c-green { background: #dcfce7; border-color: #86efac; }
+.fp-swatch.c-amber { background: #fef3c7; border-color: #fcd34d; }
+.fp-swatch.c-red { background: #fee2e2; border-color: #fca5a5; }
+.fp-swatch.c-purple { background: #ede9fe; border-color: #c4b5fd; }
+.fp-swatch.c-teal { background: #14a89a; border-color: #0f9488; }
+.fp-swatch.c-light { background: #f0fdfa; border-color: #5eead4; }
+
+.flow-list-view { flex: 1; overflow: auto; padding: 20px 28px; max-width: 920px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+.flow-desc { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; color: var(--text-2); white-space: pre-wrap; }
+.flow-step { display: flex; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+.flow-step-no { flex: none; width: 26px; height: 26px; border-radius: 50%; background: #14a89a; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+.flow-step-line { display: flex; gap: 8px; margin-top: 6px; font-size: 13px; line-height: 1.6; }
+.flow-step-line .k { flex: none; color: var(--text-3); width: 30px; }
+.flow-att { display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; flex-wrap: wrap; }
+.flow-step-next { margin-top: 6px; font-size: 12.5px; color: #0f766e; }
+@media (prefers-color-scheme: dark) {
+  .flow-item.on { background: #134e4a; }
+  .fnode-group { background: rgba(20, 168, 154, 0.06); }
+  .fnode-title.c-light { background: #134e4a; color: #99f6e4; }
+}

@@ -25,6 +25,7 @@ export const CATEGORIES: Record<string, { label: string; files: string[]; dirs: 
   projectFiles: { label: '项目文件夹（图纸、报告、照片等文件本身）', files: [], dirs: [] },
   tasks: { label: '待办、便签、专注记录', files: ['todos.json', 'stickies.json', 'focus.json'], dirs: [] },
   kb: { label: '备忘录', files: [], dirs: ['kb'] },
+  flows: { label: '工作流程', files: ['flows.json'], dirs: [] },
   contacts: { label: '通讯录、单位与供应商、询价', files: ['contacts.json', 'companies.json', 'inquiries.json'], dirs: [] },
   library: { label: '资料库（目录和文件）', files: ['library.json'], dirs: [] },
   settings: { label: '设置与 AI 用户档案', files: ['settings.json', 'profile.json'], dirs: [] }

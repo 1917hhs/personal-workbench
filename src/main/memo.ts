@@ -101,6 +101,22 @@ export function findRefs(store: Store, t: RefTarget) {
     const f = refsIn(p.html).filter((r) => hits(r, t))
     if (f.length) out.push({ where: '备忘录', id: p.id, title: p.title || '无标题', files: [...new Set(f.map((r) => r.name))] })
   }
+  // 工作流程里「所需附件」引用的模板文件
+  for (const fl of store.flows || []) {
+    const f = flowRefs(fl).filter((r) => hits(r, t))
+    if (f.length) out.push({ where: '流程', id: fl.id, title: '流程「' + (fl.name || '未命名') + '」', files: [...new Set(f.map((r) => r.name))] })
+  }
+  return out
+}
+
+/** 流程图里所有附件引用（节点和连线上的「所需附件」可以引用资料库 / 项目里的模板文件） */
+function flowRefs(fl: any) {
+  const out: ReturnType<typeof refsIn> = []
+  for (const x of [...(fl.nodes || []), ...(fl.edges || [])])
+    for (const a of x.attachments || []) {
+      const r = a.ref
+      if (r) out.push({ kind: r['data-ref'], id: r['data-id'], pid: r['data-pid'], rel: r['data-rel'], name: r['data-name'] || a.name })
+    }
   return out
 }
 
@@ -162,6 +178,23 @@ export function renameProjectRefs(store: Store, pid: string, from: string, to: s
         changed.push(p.id)
       }
     }
+  // 流程图里引用的项目文件也跟着改
+  let flowsChanged = false
+  for (const fl of store.flows || [])
+    for (const x of [...(fl.nodes || []), ...(fl.edges || [])])
+      for (const a of x.attachments || []) {
+        const r = a.ref
+        if (!r || r['data-ref'] !== 'proj' || r['data-pid'] !== pid) continue
+        const rel = r['data-rel'] || ''
+        if (rel !== from && !rel.startsWith(from + '/')) continue
+        r['data-rel'] = to + rel.slice(from.length)
+        if (rel === from) r['data-name'] = path.basename(r['data-rel'])
+        flowsChanged = true
+      }
+  if (flowsChanged) {
+    store.save('flows')
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('data:changed')
+  }
   // 正打开着的备忘录要重新载入，否则编辑器里的旧内容会把改好的路径存回去
   if (changed.length) for (const w of BrowserWindow.getAllWindows()) w.webContents.send('kb:changed', changed)
 }

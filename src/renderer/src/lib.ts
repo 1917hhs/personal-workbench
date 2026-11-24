@@ -169,6 +169,7 @@ export interface AppData {
   cards: any[]
   companies: any[]
   inquiries: any[]
+  flows: any[]
   libraryDir: string
   root: string
   backupDir: string
@@ -178,8 +179,9 @@ export interface AppData {
 }
 
 export interface Nav {
-  page: 'home' | 'projects' | 'project' | 'todos' | 'contacts' | 'library' | 'kb' | 'map' | 'inquiries' | 'settings'
+  page: 'home' | 'projects' | 'project' | 'todos' | 'contacts' | 'library' | 'kb' | 'map' | 'flows' | 'inquiries' | 'settings'
   inquiryId?: string
+  flowId?: string
   companyId?: string
   date?: string
   settingsSection?: string
@@ -202,8 +204,8 @@ export interface Ctx {
   saveSettings: (s: any) => Promise<void>
   saveContact: (c: any) => Promise<void>
   /** 保存卡片 / 单位 / 询价 */
-  saveItem: (kind: 'cards' | 'companies' | 'inquiries', x: any) => Promise<any>
-  deleteItem: (kind: 'cards' | 'companies' | 'inquiries', id: string) => Promise<void>
+  saveItem: (kind: 'cards' | 'companies' | 'inquiries' | 'flows', x: any) => Promise<any>
+  deleteItem: (kind: 'cards' | 'companies' | 'inquiries' | 'flows', id: string) => Promise<void>
   saveReview: (r: any) => Promise<void>
   deleteReview: (id: string) => Promise<void>
   toast: (msg: string) => void
