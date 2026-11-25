@@ -165,6 +165,20 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
     }
   ]
 
+  // 按模板补齐目录：rel 为空补到项目根目录，否则补到这个子文件夹下
+  const templateItems = (rel: string): MenuItem[] => {
+    const where = rel ? `「${rel.split('/').pop()}」` : '项目根目录'
+    return ((settings.templates || []) as any[]).map((t) => ({
+      label: `按模板补齐：${t.name}（${t.folders.length} 个文件夹）${!rel && t.id === project?.templateId ? ' · 本项目在用' : ''}`,
+      onClick: () =>
+        run(async () => {
+          const r2 = await api.call('projects:applyTemplate', id, t.id, rel)
+          setData({ projects: r2.projects })
+          toast(r2.created ? `按「${r2.name}」在${where}新建了 ${r2.created} 个文件夹` : `${where}下「${r2.name}」的文件夹都已存在，没有新建`)
+        })
+    }))
+  }
+
   const openMenu = (n: TNode, x: number, y: number) => {
     const items: MenuItem[] = []
     if (n.virtual === 'ref') {
@@ -187,6 +201,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
     if (n.dir) {
       items.push({ label: '新建子文件夹', onClick: () => newFolder(n.rel) })
       if (n.rel) items.push({ label: '聚焦此分支', onClick: () => setFocus(n.rel) })
+      items.push(...templateItems(n.rel))
     } else {
       items.push({ label: '打开', onClick: () => api.call('fs:open', id, n.rel) })
     }
@@ -330,19 +345,15 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
                 className="btn small"
                 onClick={(e) => {
                   const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                  const tpls: any[] = settings.templates || []
+                  // 选中了子文件夹就补到它下面，否则补到项目根目录
+                  const targetRel = selNode && selNode.dir && !selNode.virtual && selNode.rel ? selNode.rel : ''
                   setMenu({
                     x: r.left,
                     y: r.bottom + 4,
-                    items: tpls.map((t) => ({
-                      label: `${t.name}（${t.folders.length} 个文件夹）${t.id === project.templateId ? ' · 本项目在用' : t.id === settings.defaultTemplateId ? ' · 默认' : ''}`,
-                      onClick: () =>
-                        run(async () => {
-                          const r2 = await api.call('projects:applyTemplate', id, t.id)
-                          setData({ projects: r2.projects })
-                          toast(r2.created ? `按「${r2.name}」新建了 ${r2.created} 个文件夹` : `「${r2.name}」的文件夹都已存在，没有新建`)
-                        })
-                    }))
+                    items: [
+                      { label: targetRel ? `补到「${targetRel.split('/').pop()}」下` : '补到项目根目录（先选中子文件夹可补到它下面）', disabled: true },
+                      ...templateItems(targetRel)
+                    ]
                   })
                 }}
               >

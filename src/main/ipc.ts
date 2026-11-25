@@ -120,12 +120,15 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return store.projects
   })
 
-  h('projects:applyTemplate', (id: string, templateId?: string) => {
+  // rel 为空：补到项目根目录；否则补到项目里的这个子文件夹
+  h('projects:applyTemplate', (id: string, templateId?: string, rel?: string) => {
     const root = projectRoot(store, id)
     const t = templateOf(templateId)
-    const created = makeFolders(root, t.folders)
+    const target = rel ? safeJoin(root, rel) : root
+    if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) throw new Error('选中的不是文件夹：' + rel)
+    const created = makeFolders(target, t.folders)
     const p = store.projects.find((x) => x.id === id)
-    if (p && p.templateId !== t.id) {
+    if (!rel && p && p.templateId !== t.id) {
       p.templateId = t.id
       store.save('projects')
     }
