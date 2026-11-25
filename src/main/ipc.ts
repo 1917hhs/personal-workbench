@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx'
 import type { Kind, Store } from './store'
 import { importPaths, previewData, safeJoin } from './files'
 import { clean as cleanName, storeCompanyFiles, storeInquiryFiles, trashInquiryFiles } from './procure'
-import { applyLibraryScan, importToLibrary, libAbs, moveLibraryDir, scanLibrary } from './library'
+import { applyLibraryScan, importToLibrary, libAbs, libraryTypeDir, moveLibraryDir, renameLibraryType, scanLibrary } from './library'
 import { listHistory, listPages, purgePage, readVersion, savePage } from './kb'
 import { exportPack, importPack, packInfo } from './pack'
 import { afterProjectRename, assertNotRoot, fileIndex, norm, projectRoot, scanProject, searchAll, upsert } from './shared'
@@ -578,6 +578,8 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     const item = store.library.find((x) => x.id === id)
     return item ? libAbs(store, item) : null
   })
+  h('library:renameType', (id: string, name: string) => renameLibraryType(store, id, name))
+  h('library:openTypeDir', (id: string) => shell.openPath(libraryTypeDir(store, id)))
   h('library:setDir', (dir: string) => {
     moveLibraryDir(store, dir)
     return all()

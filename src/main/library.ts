@@ -147,6 +147,45 @@ export function applyLibraryScan(store: Store, removeIds: string[], addRels: str
   return store.library
 }
 
+/** 资料类型改名：类型名同时也是资料库里的子文件夹名，文件夹跟着改，资料的路径一起更新 */
+export function renameLibraryType(store: Store, id: string, newName: string) {
+  const types = store.settings.libraryTypes || []
+  const t = types.find((x: any) => x.id === id)
+  if (!t) throw new Error('找不到这个类型')
+  const name = String(newName || '').trim()
+  if (!name) throw new Error('类型名不能为空')
+  if (types.some((x: any) => x.id !== id && x.name === name)) throw new Error(`已经有「${name}」了`)
+  const from = clean(t.name)
+  const to = clean(name)
+  if (!to) throw new Error('类型名不能只有特殊字符')
+  if (MANAGED.test(to)) throw new Error(`「${to}」是别的功能在用的文件夹名，换一个`)
+  const fromAbs = path.join(store.libraryDir, from)
+  const toAbs = path.join(store.libraryDir, to)
+  const sameFolder = from.toLowerCase() === to.toLowerCase()
+  if (from !== to && fs.existsSync(fromAbs)) {
+    if (!sameFolder && fs.existsSync(toAbs)) throw new Error(`资料库里已经有「${to}」文件夹了，先把它挪走或换个名字`)
+    fs.renameSync(fromAbs, toAbs)
+    const pre = from.toLowerCase() + '/'
+    for (const item of store.library) {
+      const f = String(item.file)
+      if (f.toLowerCase().startsWith(pre)) item.file = to + f.slice(from.length)
+    }
+    store.save('library')
+  }
+  t.name = name
+  store.save('settings')
+  return { settings: store.settings, library: store.library }
+}
+
+/** 某个类型在资料库里的子文件夹（没有就建一个） */
+export function libraryTypeDir(store: Store, id: string) {
+  const t = (store.settings.libraryTypes || []).find((x: any) => x.id === id)
+  if (!t) throw new Error('找不到这个类型')
+  const dir = path.join(store.libraryDir, clean(t.name))
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
+
 /** 换资料库文件夹：现有文件复制到新位置，原文件夹保留不动 */
 export function moveLibraryDir(store: Store, dir: string) {
   const from = store.libraryDir

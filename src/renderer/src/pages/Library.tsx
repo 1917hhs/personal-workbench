@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, clip, errMsg, extOf, fmtSize, uid, useApp, refWarn } from '../lib'
-import { ask, Empty } from '../ui'
+import { ask, ContextMenu, Empty, MenuItem } from '../ui'
 import { FileBadge } from './MindMap'
 import { Preview } from './ProjectView'
 
@@ -14,6 +14,26 @@ export default function Library({ focusId }: { focusId?: string }) {
   const [q, setQ] = useState('')
   const [sel, setSel] = useState<string | null>(focusId || null)
   const [dragging, setDragging] = useState(false)
+  const [typeMenu, setTypeMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
+  // 类型改名：资料库里对应的子文件夹也一起改名
+  const renameType = async (t: any) => {
+    const name = (await ask('重命名类型', t.name))?.trim()
+    if (!name || name === t.name) return
+    try {
+      const r = await api.call('library:renameType', t.id, name)
+      setData({ settings: r.settings, library: r.library })
+      toast(`已改名为「${name}」`)
+    } catch (e) {
+      toast(errMsg(e))
+    }
+  }
+  const removeType = (t: any) => {
+    const n = library.filter((x) => x.type === t.id).length
+    if (n) return toast(`「${t.name}」下还有 ${n} 份资料，先把它们改成别的类型再删`)
+    if (types.length <= 1) return toast('至少要留一个类型')
+    if (type === t.id) setType('')
+    saveSettings({ ...settings, libraryTypes: types.filter((x: any) => x.id !== t.id) })
+  }
   const listRef = useRef<HTMLDivElement>(null)
 
   const list = useMemo(() => {
@@ -144,7 +164,26 @@ export default function Library({ focusId }: { focusId?: string }) {
           </button>
           <div className="side-sub">类型</div>
           {types.map((t: any) => (
-            <button key={t.id} className={'nav' + (type === t.id ? ' on' : '')} onClick={() => setType(t.id)}>
+            <button
+              key={t.id}
+              className={'nav' + (type === t.id ? ' on' : '')}
+              title="双击或右键可重命名"
+              onClick={() => setType(t.id)}
+              onDoubleClick={() => renameType(t)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                setTypeMenu({
+                  x: e.clientX,
+                  y: e.clientY,
+                  items: [
+                    { label: '重命名', onClick: () => renameType(t) },
+                    { label: '在资源管理器中打开', onClick: () => api.call('library:openTypeDir', t.id).catch((err: any) => toast(errMsg(err))) },
+                    'sep',
+                    { label: '删除类型', danger: true, onClick: () => removeType(t) }
+                  ]
+                })
+              }}
+            >
               {t.name}
               <span className="count">{library.filter((x) => x.type === t.id).length || ''}</span>
             </button>
@@ -197,6 +236,7 @@ export default function Library({ focusId }: { focusId?: string }) {
 
         {cur && <LibraryPanel key={cur.id} item={cur} save={save} remove={remove} projects={projects} types={types} />}
       </div>
+      {typeMenu && <ContextMenu {...typeMenu} onClose={() => setTypeMenu(null)} />}
     </>
   )
 }

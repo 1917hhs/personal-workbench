@@ -252,8 +252,27 @@ export default function Settings({ section }: { section?: string }) {
                 </div>
                 <ListEditor
                   title="资料类型"
-                  desc="资料库左侧的分类。改名会影响新导入文件放的子文件夹；已有资料不受影响。"
+                  desc="资料库左侧的分类，每个类型对应资料库里的一个子文件夹。双击改名时，子文件夹和里面的资料会跟着改名。"
                   items={s.libraryTypes.map((t: any) => t.name)}
+                  onRename={async (old, nw) => {
+                    const t = s.libraryTypes.find((x: any) => x.name === old)
+                    if (!t) return true
+                    try {
+                      const r = await api.call('library:renameType', t.id, nw)
+                      setData({ settings: r.settings, library: r.library })
+                    } catch (e) {
+                      alert(errMsg(e))
+                    }
+                    return false
+                  }}
+                  onRemove={(name) => {
+                    const t = s.libraryTypes.find((x: any) => x.name === name)
+                    const n = t ? data.library.filter((x: any) => x.type === t.id).length : 0
+                    if (n) {
+                      alert(`「${name}」下还有 ${n} 份资料，先在资料库里把它们改成别的类型再删`)
+                      return false
+                    }
+                  }}
                   onChange={(names) =>
                     save({
                       libraryTypes: names.map((n) => s.libraryTypes.find((t: any) => t.name === n) || { id: uid(), name: n })
