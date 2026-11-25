@@ -405,6 +405,7 @@ table.tbl { width: 100%; border-collapse: collapse; background: var(--panel); }
 .todo-detail { margin: 6px 0 4px 46px; }
 .prio { width: 10px; height: 10px; border-radius: 50%; border: 0; padding: 0; flex-shrink: 0; cursor: pointer; }
 .due-chip { position: relative; display: inline-flex; }
+.done-meta { display: inline-flex; gap: 10px; font-size: 12px; white-space: nowrap; flex-shrink: 0; cursor: default; }
 .due-chip .tag { border: 0; cursor: pointer; }
 .due-chip input[type='date'] { position: absolute; inset: 0; opacity: 0; pointer-events: none; width: 100%; }
 .tag.good { background: #dcfce7; color: #166534; }

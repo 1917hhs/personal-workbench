@@ -49,6 +49,21 @@ export function groupTodos(todos: any[]) {
   }
 }
 
+/** 已完成的按完成日期分组：今天 / 昨天 / 近 7 天 / 更早 */
+function doneGroups(done: any[]): [string, any[]][] {
+  const today = ymd()
+  const day = (t: any) => (t.doneAt ? ymd(new Date(t.doneAt)) : '')
+  const buckets: [string, (d: string) => boolean][] = [
+    ['今天完成', (d) => d === today],
+    ['昨天完成', (d) => d === addDays(today, -1)],
+    ['近 7 天完成', (d) => !!d && d >= addDays(today, -7)],
+    ['更早完成', () => true]
+  ]
+  const out: [string, any[]][] = buckets.map(([n]) => [n, []])
+  for (const t of done) out[buckets.findIndex(([, f]) => f(day(t)))][1].push(t)
+  return out
+}
+
 const WEEK = ['日', '一', '二', '三', '四', '五', '六']
 /** 「今天」「明天」「周三 11-26」「逾期 3 天」 */
 export function dueLabel(due?: string | null) {
@@ -72,6 +87,37 @@ export function DueChip({ due, done, onChange }: { due?: string | null; done?: b
         {l.text}
       </button>
       <input ref={ref} type="date" value={due || ''} onChange={(e) => onChange(e.target.value || null)} />
+    </span>
+  )
+}
+
+/** 时间戳显示成「11-24 14:30」，不是今年的带上年份 */
+function stamp(iso?: string | null) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const day = ymd(d)
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  const today = ymd()
+  if (day === today) return '今天 ' + hm
+  if (day === addDays(today, -1)) return '昨天 ' + hm
+  return (day.slice(0, 4) === today.slice(0, 4) ? day.slice(5) : day) + ' ' + hm
+}
+
+/** 已完成的待办：显示添加时间和完成时间；截止日期和用时放在悬停提示里 */
+function DoneMeta({ t }: { t: any }) {
+  const tip: string[] = []
+  if (t.createdAt) tip.push('添加：' + new Date(t.createdAt).toLocaleString())
+  if (t.doneAt) tip.push('完成：' + new Date(t.doneAt).toLocaleString())
+  if (t.due) tip.push('截止：' + t.due)
+  if (t.createdAt && t.doneAt) {
+    const days = daysBetween(ymd(new Date(t.createdAt)), ymd(new Date(t.doneAt)))
+    tip.push(days <= 0 ? '当天完成' : `用了 ${days} 天`)
+  }
+  return (
+    <span className="done-meta faint" title={tip.join('\n')}>
+      {t.createdAt && <span>添加 {stamp(t.createdAt)}</span>}
+      {t.doneAt && <span>完成 {stamp(t.doneAt)}</span>}
     </span>
   )
 }
@@ -121,7 +167,7 @@ export function TodoRow({ t, showProject = true }: { t: any; showProject?: boole
             {p.name}
           </span>
         )}
-        <DueChip due={t.due} done={t.done} onChange={(v) => saveTodo({ ...t, due: v })} />
+        {t.done ? <DoneMeta t={t} /> : <DueChip due={t.due} done={t.done} onChange={(v) => saveTodo({ ...t, due: v })} />}
         <button className={'star' + (t.starred ? ' on' : '')} onClick={() => saveTodo({ ...t, starred: !t.starred })}>★</button>
         <button className="icon-btn" title="删除" onClick={() => deleteTodo(t.id)}>×</button>
       </div>
@@ -248,7 +294,7 @@ export default function Todos() {
     ['本周', g.week],
     ['以后', g.later],
     ['未安排时间', g.none],
-    ...(view === 'done' || view.startsWith('p:') ? ([['已完成', g.done]] as [string, any[]][]) : [])
+    ...(view === 'done' ? doneGroups(g.done) : view.startsWith('p:') ? ([['已完成', g.done]] as [string, any[]][]) : [])
   ]
   const projectsWithTodos = data.projects.filter((p) => data.todos.some((t) => t.projectId === p.id && !t.done))
   const nav = (id: View, label: string, n?: number, color?: string) => (
@@ -287,7 +333,7 @@ export default function Todos() {
                   <div className="todo-group-head" style={{ color }}>
                     {name} <span className="faint">{items.length}</span>
                   </div>
-                  {items.slice(0, name === '已完成' ? 200 : undefined).map((t) => (
+                  {items.slice(0, name.endsWith('完成') ? 200 : undefined).map((t) => (
                     <TodoRow key={t.id} t={t} />
                   ))}
                 </div>
