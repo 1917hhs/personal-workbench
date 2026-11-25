@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { api, daysBetween, errMsg, needsAttention, stageOf, useApp, ymd } from '../lib'
-import { Empty, StageDot, Tabs } from '../ui'
+import { api, daysBetween, errMsg, leadsOf, needsAttention, progressOf, stageOf, useApp, ymd } from '../lib'
+import { Empty, Ico, StageDot, Tabs } from '../ui'
 import ProjectDialog from './ProjectDialog'
 
 export function DeadlineTag({ date }: { date?: string }) {
@@ -12,7 +12,7 @@ export function DeadlineTag({ date }: { date?: string }) {
 }
 
 export default function Projects() {
-  const { data, go, toast } = useApp()
+  const { data, go, toast, saveProject } = useApp()
   const { settings, projects } = data
   const [view, setView] = useState<'card' | 'list' | 'board'>(() => (localStorage.getItem('projView') as any) || 'card')
   const [q, setQ] = useState('')
@@ -30,7 +30,7 @@ export default function Projects() {
     return projects
       .filter((p) => !q || has(p.name) || has(p.code) || has(p.client) || has(p.location))
       .filter((p) => !stage || p.stage === stage)
-      .filter((p) => !owner || p.owner === owner || p.members?.includes(owner))
+      .filter((p) => !owner || leadsOf(p).some((l) => l.name === owner) || p.members?.includes(owner))
       .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
   }, [projects, q, stage, owner])
 
@@ -61,10 +61,16 @@ export default function Projects() {
 
   const Card = ({ p }: { p: any }) => {
     const s = stageOf(settings, p.stage)
-    const idx = Math.max(0, settings.stages.findIndex((x: any) => x.id === s?.id))
-    const pct = settings.stages.length ? Math.round(((idx + 1) / settings.stages.length) * 100) : 0
+    const pr = progressOf(p)
     const st = stats.get(p.id) || { todo: 0, inq: 0, inqOpen: 0 }
-    const people = [p.owner, ...(p.members || []).filter((x: string) => x !== p.owner)].filter(Boolean)
+    const leads = leadsOf(p)
+    // 点进度条直接设成点到的位置（手动进度）
+    const setPct = (e: React.MouseEvent) => {
+      e.stopPropagation()
+      const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+      const v = Math.max(0, Math.min(100, Math.round(((e.clientX - r.left) / r.width) * 20) * 5))
+      saveProject({ id: p.id, progress: v })
+    }
     return (
       <div className="card proj-card" onClick={() => open(p.id)} title="点击打开项目">
         <div className="row" style={{ gap: 6 }}>
@@ -76,9 +82,9 @@ export default function Projects() {
         <div className="proj-name">{p.name}</div>
         {p.parentId && <div className="faint" style={{ fontSize: 12, marginTop: -6 }}>↳ {parentName(p)}</div>}
         <div className="pc-meta">
-          <div title="委托单位 / 业主"><span className="pc-ico">🏢</span>{p.client || <span className="faint">—</span>}</div>
-          <div title="地点"><span className="pc-ico">📍</span>{p.location || <span className="faint">—</span>}</div>
-          {p.code && <div title="项目编号"><span className="pc-ico">#</span>{p.code}</div>}
+          <div title="委托单位 / 业主"><span className="pc-ico"><Ico name="building" /></span>{p.client || <span className="faint">—</span>}</div>
+          <div title="地点"><span className="pc-ico"><Ico name="pin" /></span>{p.location || <span className="faint">—</span>}</div>
+          {p.code && <div title="项目编号"><span className="pc-ico"><Ico name="hash" /></span>{p.code}</div>}
         </div>
         <div className="pc-stats">
           <span className={st.todo ? '' : 'faint'}>待办 <b>{st.todo}</b></span>
@@ -86,12 +92,42 @@ export default function Projects() {
           <span style={{ marginLeft: 'auto' }}><DeadlineTag date={p.deadline} /></span>
         </div>
         <div className="pc-foot">
-          <div className="row" style={{ gap: 10 }}>
-            <div className="pc-bar"><div style={{ width: pct + '%', background: s.color || 'var(--accent)' }} /></div>
-            <span className="faint" style={{ fontSize: 12 }}>{pct}%</span>
-          </div>
-          <div className="row" style={{ gap: 6, marginTop: 8 }}>
-            <span className={people.length ? 'muted' : 'faint'} style={{ fontSize: 12.5 }}>{people.length ? '负责人 ' + people.join('、') : '未指定负责人'}</span>
+          {pr && (
+            <div className="row" style={{ gap: 10, marginBottom: 8 }}>
+              <div
+                className="pc-bar adjustable"
+                title={(pr.manual ? '手动设置的进度' : `按时间自动计算：${p.startDate} → ${p.deadline}`) + '\n点击进度条可手动调整'}
+                onClick={setPct}
+              >
+                <div style={{ width: pr.pct + '%', background: s.color || 'var(--accent)' }} />
+              </div>
+              <span className="faint" style={{ fontSize: 12, minWidth: 34, textAlign: 'right' }}>{pr.pct}%</span>
+              {pr.manual && (
+                <button
+                  className="pc-auto"
+                  title={p.startDate && p.deadline ? '恢复按时间自动计算' : '清除手动进度（没填开始和截止日期时不显示进度条）'}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    saveProject({ id: p.id, progress: null })
+                  }}
+                >
+                  ↺
+                </button>
+              )}
+            </div>
+          )}
+          <div className="pc-leads">
+            {leads.length ? (
+              leads.map((l, i) => (
+                <span key={i} className="pc-lead" title={l.role || '负责人'}>
+                  <Ico name="user" size={12} />
+                  {l.role && <span className="faint">{l.role}</span>}
+                  {l.name}
+                </span>
+              ))
+            ) : (
+              <span className="faint" style={{ fontSize: 12.5 }}>未指定负责人</span>
+            )}
             {!p.rootPath && <span className="tag" style={{ marginLeft: 'auto' }}>未关联文件夹</span>}
           </div>
         </div>
@@ -183,7 +219,7 @@ export default function Projects() {
                       <td className="muted">{p.client}</td>
                       <td>{s.name}</td>
                       <td className="muted">{p.status}</td>
-                      <td className="muted">{p.owner}</td>
+                      <td className="muted">{leadsOf(p).map((l) => l.name).join('、')}</td>
                       <td><DeadlineTag date={p.deadline} /></td>
                     </tr>
                   ))

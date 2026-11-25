@@ -119,6 +119,25 @@ export function daysBetween(a: string, b: string) {
   return Math.round((new Date(b + 'T00:00:00').getTime() - new Date(a + 'T00:00:00').getTime()) / 86400000)
 }
 
+/** 负责人的常用角色（可自己填别的） */
+export const LEAD_ROLES = ['项目负责人', '技术负责人', '商务负责人', '设计负责人', '采购负责人']
+
+/** 项目负责人列表；老数据只有 owner 一个字段时当作一位「负责人」 */
+export function leadsOf(p: any): { role: string; name: string }[] {
+  if (Array.isArray(p?.leads)) return p.leads.filter((x: any) => x && String(x.name || '').trim())
+  return p?.owner ? [{ role: '负责人', name: p.owner }] : []
+}
+
+/** 项目进度：手动填了就用手动的；否则按 开始日期 → 截止日期 和今天算；都没有返回 null（不显示） */
+export function progressOf(p: any): { pct: number; manual: boolean } | null {
+  const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)))
+  if (p?.progress != null && p.progress !== '' && !isNaN(Number(p.progress))) return { pct: clamp(Number(p.progress)), manual: true }
+  if (!p?.startDate || !p?.deadline) return null
+  const total = daysBetween(p.startDate, p.deadline)
+  if (!(total > 0)) return null
+  return { pct: clamp((daysBetween(p.startDate, ymd()) / total) * 100), manual: false }
+}
+
 export function fmtTime(ms: number | string | undefined) {
   if (!ms) return ''
   const d = new Date(ms)

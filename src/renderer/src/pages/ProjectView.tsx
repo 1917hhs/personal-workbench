@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, CATS, catOf, clip, errMsg, extOf, fmtSize, fmtTime, joinPath, normPath, stageOf, useApp, refWarn } from '../lib'
+import { api, CATS, catOf, clip, errMsg, extOf, fmtSize, fmtTime, joinPath, normPath, stageOf, useApp, refWarn, leadsOf } from '../lib'
 import { ask, ContextMenu, Empty, MenuItem, Tabs } from '../ui'
 import { groupVersions, injectRefs } from '../versions'
 import MindMap, { FileBadge, TNode } from './MindMap'
@@ -326,7 +326,9 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
           ))}
         </select>
         {project.deadline && <span className="chip">截止 {project.deadline}</span>}
-        {project.owner && <span className="chip">负责人 {project.owner}</span>}
+        {leadsOf(project).map((l, i) => (
+          <span key={i} className="chip">{l.role || '负责人'} {l.name}</span>
+        ))}
         <span className="spacer" />
         <Tabs value={tab} onChange={setTab} options={[{ id: 'map', label: '导图' }, { id: 'detail', label: '详情' }]} />
         <button className="btn" onClick={() => setEditing(true)}>编辑信息</button>

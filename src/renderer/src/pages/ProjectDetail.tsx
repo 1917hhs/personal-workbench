@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { fmtLatLng, parseLatLng, stageOf, useApp } from '../lib'
+import { fmtLatLng, parseLatLng, stageOf, useApp, leadsOf, progressOf } from '../lib'
 import { ContactDialog } from './Contacts'
 import { DeadlineTag } from './Projects'
 import { QuickAdd, TodoRow } from './Todos'
@@ -106,8 +106,17 @@ export default function ProjectDetail({ project }: { project: any }) {
                 <span className="v" style={{ gridColumn: 'span 3' }}>
                   <CoordEdit project={project} />
                 </span>
+                <span className="k">开始日期</span>
+                <span className="v">{project.startDate || '—'}</span>
+                <span className="k">进度</span>
+                <span className="v">
+                  {(() => {
+                    const pr = progressOf(project)
+                    return pr ? `${pr.pct}%${pr.manual ? '（手动）' : '（按时间）'}` : '—'
+                  })()}
+                </span>
                 <span className="k">负责人</span>
-                <span className="v">{project.owner || '—'}</span>
+                <span className="v" style={{ gridColumn: 'span 3' }}>{leadsOf(project).map((l) => (l.role ? `${l.role} ${l.name}` : l.name)).join('；') || '—'}</span>
                 <span className="k">参与人</span>
                 <span className="v">{project.members?.join('、') || '—'}</span>
                 <span className="k">累计专注</span>

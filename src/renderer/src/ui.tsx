@@ -149,6 +149,37 @@ export function Empty(props: { title: string; text?: string; children?: ReactNod
   )
 }
 
+/** 线条小图标（跟随文字颜色） */
+export function Ico({ name, size = 14 }: { name: 'pin' | 'building' | 'user' | 'hash'; size?: number }) {
+  const p = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+  if (name === 'pin')
+    return (
+      <svg {...p}>
+        <path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z" />
+        <circle cx="12" cy="9.5" r="2.5" />
+      </svg>
+    )
+  if (name === 'building')
+    return (
+      <svg {...p}>
+        <rect x="4" y="3" width="16" height="18" rx="1.5" />
+        <path d="M9 7h1M14 7h1M9 11h1M14 11h1M9 15h1M14 15h1M10 21v-3h4v3" />
+      </svg>
+    )
+  if (name === 'user')
+    return (
+      <svg {...p}>
+        <circle cx="12" cy="8" r="3.5" />
+        <path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5" />
+      </svg>
+    )
+  return (
+    <svg {...p}>
+      <path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16" />
+    </svg>
+  )
+}
+
 export function StageDot({ color }: { color: string }) {
   return <span className="stage-dot" style={{ background: color }} />
 }

@@ -181,8 +181,10 @@ function tools(store: Store): Tool[] {
     location: p.location || '',
     stage: stageName(p.stage),
     status: p.status || '',
-    owner: p.owner || '',
+    owner: (Array.isArray(p.leads) ? p.leads.filter((l: any) => l?.name).map((l: any) => (l.role ? l.role + ' ' : '') + l.name).join('；') : p.owner || ''),
+    startDate: p.startDate || '',
     deadline: p.deadline || '',
+    progress: p.progress ?? null,
     parentProject: store.projects.find((x) => x.id === p.parentId)?.name || '',
     folder: p.rootPath || '',
     openTodos: store.todos.filter((t) => t.projectId === p.id && !t.done).length

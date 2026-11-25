@@ -503,10 +503,11 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
       主项目: store.projects.find((x) => x.id === p.parentId)?.name || '',
       阶段: stageName(p.stage),
       状态: p.status || '',
-      负责人: p.owner || '',
+      负责人: (Array.isArray(p.leads) ? p.leads.filter((l: any) => l?.name).map((l: any) => (l.role ? l.role + ' ' : '') + l.name).join('；') : p.owner || ''),
       参与人: (p.members || []).join('、'),
       委托单位: p.client || '',
       项目地点: p.location || '',
+      开始日期: p.startDate || '',
       截止日期: p.deadline || '',
       未完成待办: store.todos.filter((t) => t.projectId === p.id && !t.done).length,
       询价: store.inquiries.filter((x) => x.projectId === p.id).length,
@@ -514,7 +515,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
       备注: p.description || ''
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
-    ws['!cols'] = [6, 14, 34, 24, 10, 8, 8, 18, 22, 16, 12, 10, 8, 50, 30].map((w) => ({ wch: w }))
+    ws['!cols'] = [6, 14, 34, 24, 10, 8, 30, 18, 22, 16, 12, 12, 10, 8, 50, 30].map((w) => ({ wch: w }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, '项目台账')
     try {

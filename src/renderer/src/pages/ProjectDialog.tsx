@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { api, errMsg, parseLatLng, uid, useApp } from '../lib'
+import { api, errMsg, LEAD_ROLES, leadsOf, parseLatLng, progressOf, uid, useApp } from '../lib'
 import { Modal } from '../ui'
 
 /** 新建 / 编辑项目。新建时可以按模板建文件夹、关联已有文件夹，或暂不关联。 */
@@ -19,6 +19,7 @@ export default function ProjectDialog({ project, onClose, onCreated }: { project
       status: settings.statuses[0],
       owner: '',
       members: [],
+      startDate: '',
       deadline: '',
       parentId: '',
       rootPath: ''
@@ -28,6 +29,8 @@ export default function ProjectDialog({ project, onClose, onCreated }: { project
   const [existing, setExisting] = useState('')
   const [templateId, setTemplateId] = useState<string>(settings.defaultTemplateId || settings.templates?.[0]?.id)
   const set = (k: string, v: any) => setP((x: any) => ({ ...x, [k]: v }))
+  const [leads, setLeads] = useState<{ role: string; name: string }[]>(() => (project ? leadsOf(project).map((l) => ({ ...l })) : [{ role: '项目负责人', name: '' }]))
+  const setLead = (i: number, patch: any) => setLeads((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)))
   const [coord, setCoord] = useState(project?.lat != null ? `${project.lat}, ${project.lng}` : '')
   const parsed = coord.trim() ? parseLatLng(coord) : null
 
@@ -48,7 +51,8 @@ export default function ProjectDialog({ project, onClose, onCreated }: { project
       if (!ll) return toast('经纬度看不懂，请写成「39.7528, 37.0179」或「39°45′10″N 37°01′05″E」')
       pos = { lat: ll.lat, lng: ll.lng }
     } else if (p.lat != null) pos = { lat: null, lng: null }
-    const q = { ...p, ...pos }
+    const clean = leads.map((l) => ({ role: l.role.trim(), name: l.name.trim() })).filter((l) => l.name)
+    const q = { ...p, ...pos, leads: clean, owner: clean[0]?.name || '' }
     try {
       if (isNew) {
         if (folderMode === 'existing' && !existing) return toast('请选择已有文件夹，或改选「暂不关联」')
@@ -118,17 +122,48 @@ export default function ProjectDialog({ project, onClose, onCreated }: { project
             </select>
           </div>
           <div className="field">
+            <label>开始日期</label>
+            <input type="date" className="input" value={p.startDate || ''} onChange={(e) => set('startDate', e.target.value)} />
+          </div>
+          <div className="field">
             <label>截止日期</label>
             <input type="date" className="input" value={p.deadline || ''} onChange={(e) => set('deadline', e.target.value)} />
           </div>
           <div className="field">
-            <label>负责人</label>
-            <select className="input" value={p.owner} onChange={(e) => set('owner', e.target.value)}>
-              <option value="">未指定</option>
-              {settings.members.map((m: any) => (
-                <option key={m.id}>{m.name}</option>
+            <label>进度 %（留空按时间自动算）</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              className="input"
+              value={p.progress ?? ''}
+              placeholder={(() => {
+                const a = progressOf({ ...p, progress: null })
+                return a ? `自动：${a.pct}%` : '填开始和截止日期后自动算'
+              })()}
+              onChange={(e) => set('progress', e.target.value === '' ? null : Math.max(0, Math.min(100, Number(e.target.value))))}
+            />
+          </div>
+          <div className="field" style={{ gridColumn: '1 / -1' }}>
+            <label>负责人（可以添加多个，角色可自己填）</label>
+            {leads.map((l, i) => (
+              <div key={i} className="lead-row">
+                <input className="input" style={{ width: 150 }} list="lead-roles" value={l.role} placeholder="角色，如 技术负责人" onChange={(e) => setLead(i, { role: e.target.value })} />
+                <input className="input" style={{ flex: 1 }} list="lead-members" value={l.name} placeholder="姓名" onChange={(e) => setLead(i, { name: e.target.value })} />
+                <button className="icon-btn" title="删除这一位" onClick={() => setLeads(leads.filter((_, j) => j !== i))}>×</button>
+              </div>
+            ))}
+            <button className="btn small" style={{ width: 'auto', alignSelf: 'flex-start' }} onClick={() => setLeads([...leads, { role: LEAD_ROLES.find((r) => !leads.some((l) => l.role === r)) || '', name: '' }])}>+ 添加负责人</button>
+            <datalist id="lead-roles">
+              {LEAD_ROLES.map((r) => (
+                <option key={r} value={r} />
               ))}
-            </select>
+            </datalist>
+            <datalist id="lead-members">
+              {settings.members.map((m: any) => (
+                <option key={m.id} value={m.name} />
+              ))}
+            </datalist>
           </div>
           <div className="field" style={{ gridColumn: '1 / -1' }}>
             <label>经纬度（WGS-84，先纬度后经度，可直接粘贴谷歌地图 / 奥维的坐标）</label>
