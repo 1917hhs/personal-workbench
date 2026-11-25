@@ -24,6 +24,21 @@ function dragIcon() {
 
 export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   const h = (ch: string, fn: (...a: any[]) => any) => ipcMain.handle(ch, (_e, ...a) => fn(...a))
+  // 选文件 / 保存 / 提示框关掉后，同样把焦点还给窗口，免得输入框打不了字
+  for (const k of ['showOpenDialog', 'showSaveDialog', 'showMessageBox'] as const) {
+    const orig = (dialog as any)[k].bind(dialog)
+    ;(dialog as any)[k] = async (...a: any[]) => {
+      try {
+        return await orig(...a)
+      } finally {
+        const w = a[0] instanceof BrowserWindow ? a[0] : getWin()
+        if (w && !w.isDestroyed()) {
+          w.focus()
+          w.webContents.focus()
+        }
+      }
+    }
+  }
   const all = () => ({
     settings: store.settings,
     projects: store.projects,
@@ -553,6 +568,16 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   h('shell:openPath', (p: string) => shell.openPath(p))
   h('shell:reveal', (p: string) => shell.showItemInFolder(p))
   h('clipboard:text', (t: string) => clipboard.writeText(t))
+
+  // Windows 上 confirm / alert 弹窗关掉后，网页里的输入框会打不了字（要切到别的软件再切回来才好）：
+  // 弹窗关掉后由界面通知这里，把窗口焦点重新给回去
+  ipcMain.on('win:refocus', (e) => {
+    const w = BrowserWindow.fromWebContents(e.sender)
+    if (!w || w.isDestroyed()) return
+    w.blur()
+    w.focus()
+    w.webContents.focus()
+  })
 
   ipcMain.on('fs:startDrag', (e, id: string, rel: string) => {
     try {
