@@ -76,9 +76,11 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     upsert(store.projects, p)
     if (moved) {
       const cur = store.projects.find((x) => x.id === p.id)
+      const oldId = old?.rootId || (old?.rootPath ? folderId(old.rootPath) : '')
       cur.rootId = folderId(p.rootPath)
-      // 重新关联到改了名 / 挪了位置的文件夹：引用、询价文件路径跟着改
-      if (old?.rootPath) retargetAbs(store, old.rootPath, p.rootPath)
+      // 重新关联到改了名 / 挪了位置的同一个文件夹：引用、询价文件路径跟着改
+      //（原文件夹还在、换成了另一个文件夹时不动，免得把指向原文件夹的引用改错）
+      if (old?.rootPath && (!fs.existsSync(old.rootPath) || (oldId && oldId === cur.rootId))) retargetAbs(store, old.rootPath, p.rootPath)
     }
     store.save('projects')
     return store.projects
@@ -144,13 +146,21 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     if (to === p.rootPath) return store.projects
     if (norm(to) !== norm(p.rootPath) && fs.existsSync(to)) throw new Error(`同一位置已经有「${nm}」了`)
     const from = p.rootPath
-    // 正在监听这个文件夹时 Windows 不让改名：先停掉监听（界面会按新路径重新监听）
-    await watcher?.close()
-    watcher = null
-    fs.renameSync(from, to)
+    // 先停掉监听再改名，改完（或失败）按当时的路径接着监听
+    const wasWatching = watchedId
+    await stopWatch()
+    try {
+      fs.renameSync(from, to)
+    } catch (e: any) {
+      await startWatch(wasWatching)
+      if (e?.code === 'EPERM' || e?.code === 'EBUSY' || e?.code === 'EACCES')
+        throw new Error('文件夹里有文件正被别的程序打开（Word、Excel、资源管理器预览窗格等），关掉后再试')
+      throw e
+    }
     p.rootPath = to
     store.save('projects')
     retargetAbs(store, from, to)
+    if (wasWatching) await startWatch(wasWatching)
     return store.projects
   })
   h('projects:openFolder', (id: string) => {
@@ -432,20 +442,41 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return meta
   })
 
-  let watcher: chokidar.FSWatcher | null = null
+  // 用系统自带的递归监听：只占项目文件夹一个句柄，资源管理器里照样能给项目文件夹 / 子文件夹改名、删除
+  //（chokidar 会给每个子文件夹各开一个句柄，Windows 就提示「文件夹正在使用」不让改名）
+  let watcher: { close(): any } | null = null
+  let watchedId: string | null = null
   let debounce: NodeJS.Timeout | null = null
-  h('project:watch', async (id: string | null) => {
-    if (watcher) await watcher.close()
+  const stopWatch = async () => {
+    try {
+      await watcher?.close()
+    } catch {}
     watcher = null
+  }
+  const startWatch = async (id: string | null) => {
+    await stopWatch()
+    watchedId = id
     if (!id) return
     const root = projectRoot(store, id)
     if (!fs.existsSync(root)) return
-    watcher = chokidar.watch(root, { ignoreInitial: true, depth: 30, ignored: /node_modules|\.git[\\/]/ })
-    watcher.on('all', () => {
+    const notify = () => {
       if (debounce) clearTimeout(debounce)
       debounce = setTimeout(() => getWin()?.webContents.send('project:changed', id), 400)
-    })
-  })
+    }
+    try {
+      const w = fs.watch(root, { recursive: true }, (_e, f) => {
+        if (f && /(^|[\\/])(node_modules|\.git)([\\/]|$)/.test(String(f))) return
+        notify()
+      })
+      w.on('error', notify) // 文件夹被改名 / 删除：让界面重新读一遍（会自动找回）
+      watcher = w
+    } catch {
+      const w = chokidar.watch(root, { ignoreInitial: true, depth: 30, ignored: /node_modules|\.git[\\/]/ })
+      w.on('all', notify)
+      watcher = w
+    }
+  }
+  h('project:watch', (id: string | null) => startWatch(id))
 
   // ---------- 文件操作 ----------
   const abs = (id: string, rel: string) => safeJoin(projectRoot(store, id), rel)

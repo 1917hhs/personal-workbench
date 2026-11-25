@@ -149,14 +149,23 @@ export function relinkProject(store: Store, p: any): { relinked: boolean; candid
   const old = p?.rootPath
   if (!old || fs.existsSync(old)) return { relinked: false, candidates: [] }
   const parent = path.dirname(old)
-  if (!fs.existsSync(parent)) return { relinked: false, candidates: [] }
   const used = new Set(store.projects.filter((x) => x.id !== p.id && x.rootPath).map((x) => norm(x.rootPath)))
-  const dirs = fs
-    .readdirSync(parent, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && !used.has(norm(path.join(parent, d.name))))
-    .map((d) => path.join(parent, d.name))
+  const subdirs = (base: string) => {
+    try {
+      return fs
+        .readdirSync(base, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && !used.has(norm(path.join(base, d.name))))
+        .map((d) => path.join(base, d.name))
+    } catch {
+      return []
+    }
+  }
+  // 候选只列原来的上级文件夹里的；按身份找时再加上设置里的「项目根目录」（挪到那里也能找回）
+  const dirs = subdirs(parent)
   if (p.rootId) {
-    const hit = dirs.find((d) => folderId(d) === p.rootId)
+    const root = store.settings?.projectsRoot
+    const more = root && norm(root) !== norm(parent) ? subdirs(root) : []
+    const hit = [...dirs, ...more].find((d) => folderId(d) === p.rootId)
     if (hit) {
       p.rootPath = hit
       store.save('projects')
