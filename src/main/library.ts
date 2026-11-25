@@ -83,6 +83,15 @@ function listLibraryFiles(root: string) {
   return out
 }
 
+/** 文件所在的顶层子文件夹对应哪个类型（不在类型文件夹里返回 null） */
+export function typeOfRel(store: Store, rel: string) {
+  const r = String(rel || '')
+  if (!r.includes('/')) return null
+  const top = r.slice(0, r.indexOf('/')).toLowerCase()
+  return (store.settings.libraryTypes || []).find((t: any) => clean(t.name).toLowerCase() === top) || null
+}
+const typeName = (store: Store, id: string) => (store.settings.libraryTypes || []).find((t: any) => t.id === id)?.name || '（无类型）'
+
 /**
  * 对照资料库文件夹检查列表：
  * - 文件在资料库文件夹里被挪动 / 改名（同名或同大小只有一个能对上）→ 直接更新路径
@@ -110,13 +119,29 @@ export function scanLibrary(store: Store) {
     } else missing.push({ id: item.id, name: item.name, code: item.code || '', file: item.file })
   }
   if (moved.length) store.save('library')
-  return { missing, untracked: untracked.map((f) => f.rel), moved, library: store.library }
+  // 文件放在某个类型的子文件夹里，但登记的类型是别的（在资源管理器里挪过、或者归类时还没有这个类型）
+  const retype: any[] = []
+  for (const item of store.library) {
+    if (missing.some((m) => m.id === item.id)) continue
+    const t = typeOfRel(store, item.file)
+    if (t && t.id !== item.type) retype.push({ id: item.id, name: item.name, code: item.code || '', from: typeName(store, item.type), to: t.name })
+  }
+  return { missing, untracked: untracked.map((f) => f.rel), moved, retype, library: store.library }
 }
 
 /** 按检查结果整理：移除文件已不在的条目；把文件夹里新放进来的文件登记成资料（不再复制） */
-export function applyLibraryScan(store: Store, removeIds: string[], addRels: string[]) {
+export function applyLibraryScan(store: Store, removeIds: string[], addRels: string[], retypeIds?: string[]) {
   const rm = new Set(removeIds || [])
   store.library = store.library.filter((x) => !rm.has(x.id))
+  // 类型改成文件所在子文件夹对应的类型
+  for (const id of retypeIds || []) {
+    const item = store.library.find((x) => x.id === id)
+    const t = item && typeOfRel(store, item.file)
+    if (item && t) {
+      item.type = t.id
+      item.updatedAt = new Date().toISOString()
+    }
+  }
   const types = store.settings.libraryTypes || []
   const now = new Date().toISOString()
   for (const rel of addRels || []) {
@@ -125,7 +150,7 @@ export function applyLibraryScan(store: Store, removeIds: string[], addRels: str
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile() || store.library.some((x) => String(x.file).toLowerCase() === rel.toLowerCase())) continue
     // 放在哪个类型的子文件夹里，就算哪个类型
     const top = rel.includes('/') ? rel.slice(0, rel.indexOf('/')) : ''
-    const type = types.find((t: any) => clean(t.name) === top) || types.find((t: any) => t.name === '其他资料') || types[0]
+    const type = typeOfRel(store, rel) || types.find((t: any) => t.name === '其他资料') || types[0]
     const { code, name } = parseName(path.basename(rel))
     store.library.push({
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
@@ -145,6 +170,25 @@ export function applyLibraryScan(store: Store, removeIds: string[], addRels: str
   }
   store.save('library')
   return store.library
+}
+
+/**
+ * 在界面上改了资料的类型：文件原来在旧类型的子文件夹（或资料库根目录）里，就挪到新类型的子文件夹，
+ * 保持「文件夹 = 类型」。文件放在别的自建文件夹里的不动。
+ */
+export function moveToTypeDir(store: Store, item: any, oldType: string) {
+  const t = (store.settings.libraryTypes || []).find((x: any) => x.id === item.type)
+  if (!t || item.type === oldType) return
+  const cur = typeOfRel(store, item.file)
+  const atRoot = !String(item.file).includes('/')
+  if (!atRoot && cur?.id !== oldType) return
+  const src = libAbs(store, item)
+  if (!fs.existsSync(src) || !fs.statSync(src).isFile()) return
+  const dir = path.join(store.libraryDir, clean(t.name))
+  fs.mkdirSync(dir, { recursive: true })
+  const target = uniqueTarget(dir, path.basename(src))
+  fs.renameSync(src, target)
+  item.file = path.relative(store.libraryDir, target).split(path.sep).join('/')
 }
 
 /** 资料类型改名：类型名同时也是资料库里的子文件夹名，文件夹跟着改，资料的路径一起更新 */

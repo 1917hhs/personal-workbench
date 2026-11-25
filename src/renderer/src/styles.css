@@ -744,3 +744,18 @@ tr.drop-row.over td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 }
 .toast-act { margin-left: 12px; background: none; border: 0; color: #93c5fd; font-weight: 600; cursor: pointer; padding: 0; font-size: inherit; }
 .toast-act:hover { text-decoration: underline; }
+
+/* ---------- 语音识别模型 ---------- */
+.asr-list { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel, #fff); }
+.asr-row { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-top: 1px solid var(--line); }
+.asr-row:first-child { border-top: none; }
+.asr-row.on { box-shadow: inset 3px 0 0 var(--accent); }
+.asr-main { flex: 1; min-width: 0; }
+
+.memo-audio-wrap { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.memo-audio-wrap .memo-audio { margin: 0; }
+.memo-audio-tr { border: 1px solid var(--line); background: var(--panel, #fff); color: var(--text-2); border-radius: 8px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.memo-audio-tr:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.memo-audio-tr:disabled { opacity: .7; cursor: progress; }
+.asr-dir { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12.5px; }
+.asr-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-family: ui-monospace, Consolas, monospace; font-size: 12px; }

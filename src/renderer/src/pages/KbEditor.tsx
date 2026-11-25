@@ -358,6 +358,12 @@ const KbEditor = forwardRef<
   }, [rec])
   // 离开页面时停掉录音
   useEffect(() => () => rec?.stream.getTracks().forEach((t) => t.stop()), [rec])
+  // 录音块「转文字」的提示（节点视图里拿不到 toast）
+  useEffect(() => {
+    const f = (e: any) => toast(String(e.detail || ''))
+    window.addEventListener('memo:toast', f)
+    return () => window.removeEventListener('memo:toast', f)
+  }, [])
 
   const act = (a: string) => {
     if (a === 'image') pick('选择图片', [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] }])

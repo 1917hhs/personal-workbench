@@ -20,7 +20,52 @@ export const MemoAudio = Node.create({
   draggable: true,
   addAttributes: () => ({ src: { default: null }, 'data-name': { default: '' } }),
   parseHTML: () => [{ tag: 'audio[src]' }],
-  renderHTML: ({ HTMLAttributes }) => ['audio', mergeAttributes(HTMLAttributes, { controls: 'true', preload: 'metadata', class: 'memo-audio' })]
+  renderHTML: ({ HTMLAttributes }) => ['audio', mergeAttributes(HTMLAttributes, { controls: 'true', preload: 'metadata', class: 'memo-audio' })],
+  // 编辑时在录音旁边多一个「转文字」按钮（只是界面，保存的仍是 <audio>）
+  addNodeView:
+    () =>
+    ({ node, editor, getPos }) => {
+      const dom = document.createElement('div')
+      dom.className = 'memo-audio-wrap'
+      dom.contentEditable = 'false'
+      const audio = document.createElement('audio')
+      audio.src = node.attrs.src
+      audio.controls = true
+      audio.preload = 'metadata'
+      audio.className = 'memo-audio'
+      const btn = document.createElement('button')
+      btn.className = 'memo-audio-tr'
+      btn.type = 'button'
+      btn.textContent = '📝 转文字'
+      btn.title = '用本机语音识别把这段录音转成文字，插在下面'
+      btn.onmousedown = (e) => e.preventDefault()
+      btn.onclick = async () => {
+        if (btn.disabled) return
+        btn.disabled = true
+        btn.textContent = '识别中…'
+        try {
+          const { transcribeUrl } = await import('./asr')
+          const text = await transcribeUrl(node.attrs.src, (done, total) => {
+            if (total > 1) btn.textContent = `识别中 ${done}/${total}`
+          })
+          const pos = typeof getPos === 'function' ? getPos() : null
+          if (!text.trim()) window.dispatchEvent(new CustomEvent('memo:toast', { detail: '没有识别出文字' }))
+          else if (pos != null && editor.isEditable)
+            editor
+              .chain()
+              .insertContentAt(pos + node.nodeSize, { type: 'paragraph', content: [{ type: 'text', text: text.trim() }] })
+              .run()
+        } catch (e: any) {
+          const msg = String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+          window.dispatchEvent(new CustomEvent('memo:toast', { detail: msg }))
+        } finally {
+          btn.disabled = false
+          btn.textContent = '📝 转文字'
+        }
+      }
+      dom.append(audio, btn)
+      return { dom, ignoreMutation: () => true, stopEvent: (e) => btn.contains(e.target as any) }
+    }
 })
 
 export const MemoVideo = Node.create({

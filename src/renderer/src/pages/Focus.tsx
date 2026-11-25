@@ -16,6 +16,9 @@ interface Run {
 }
 
 const KEY = 'focusRun'
+const OPEN_EVENT = 'focus:open'
+/** 在别的地方打开「开始专注」对话框（计时器在侧栏，统一由它管） */
+export const openFocus = () => window.dispatchEvent(new Event(OPEN_EVENT))
 const load = (): Run | null => {
   try {
     return JSON.parse(localStorage.getItem(KEY) || 'null')
@@ -64,6 +67,12 @@ export function FocusWidget() {
     store(r)
     setRunState(r)
   }
+  // 工作台「专注」卡片上的按钮也能打开开始专注
+  useEffect(() => {
+    const open = () => setStarting(true)
+    window.addEventListener(OPEN_EVENT, open)
+    return () => window.removeEventListener(OPEN_EVENT, open)
+  }, [])
 
   const saveRecord = async (r: Run, end: number) => {
     const minutes = Math.round((end - r.start) / 60000)
@@ -221,6 +230,16 @@ function StartFocus({ onClose, onStart }: { onClose: () => void; onStart: (r: Ru
 /** 工作台上的专注统计 */
 export function FocusStats() {
   const { data, go } = useApp()
+  // 正在专注 / 休息时显示倒计时（计时状态在 localStorage 里，由侧栏的计时器维护）
+  const [run, setRun] = useState<Run | null>(load)
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const t = setInterval(() => {
+      setRun(load())
+      setNow(Date.now())
+    }, 1000)
+    return () => clearInterval(t)
+  }, [])
   const today = ymd()
   const weekStart = addDays(endOfWeek(today), -6)
   const day = (iso: string) => ymd(new Date(iso))
@@ -236,7 +255,17 @@ export function FocusStats() {
   const hm = (m: number) => (m >= 60 ? `${Math.floor(m / 60)} 小时 ${m % 60} 分` : `${m} 分钟`)
   return (
     <div className="card">
-      <div className="card-head">专注</div>
+      <div className="card-head">
+        专注
+        <span className="spacer" style={{ flex: 1 }} />
+        {run ? (
+          <span className={'tag' + (run.phase === 'work' ? ' good' : '')} title="计时器在侧栏左下角">
+            {run.phase === 'work' ? '专注中' : '休息中'} {mmss(Math.max(0, (run.start + run.minutes * 60000 - now) / 1000))}
+          </span>
+        ) : (
+          <button className="btn small primary" onClick={openFocus}>▶ 开始专注</button>
+        )}
+      </div>
       <div className="card-body">
         <div className="row" style={{ gap: 20, marginBottom: 8 }}>
           <div>
@@ -250,7 +279,7 @@ export function FocusStats() {
             <div className="faint" style={{ fontSize: 11 }}>{week.length} 段</div>
           </div>
         </div>
-        {byProject.length === 0 && <div className="faint" style={{ fontSize: 12 }}>点左下角「开始专注」开一个番茄钟</div>}
+        {byProject.length === 0 && <div className="faint" style={{ fontSize: 12 }}>点右上角「开始专注」开一个番茄钟，计时器会显示在侧栏左下角</div>}
         {byProject.slice(0, 5).map(([pid, m]) => {
           const p = data.projects.find((x) => x.id === pid)
           return (

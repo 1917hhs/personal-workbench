@@ -3,6 +3,7 @@ import { api, errMsg, uid, useApp } from '../lib'
 import { ask } from '../ui'
 import { SUP_DEFAULT, useSup } from './Companies'
 import AiProfile from './AiProfile'
+import AsrSettings from './AsrSettings'
 
 const SECTIONS = [
   ['stages', '项目阶段'],
@@ -13,6 +14,7 @@ const SECTIONS = [
   ['colors', '颜色含义'],
   ['look', '外观'],
   ['focus', '番茄钟'],
+  ['asr', '语音识别'],
   ['map', '地图'],
   ['ai', '智能体（AI）'],
   ['aiProfile', 'AI 用户档案'],
@@ -285,6 +287,7 @@ export default function Settings({ section }: { section?: string }) {
             {sec === 'pack' && <PackSection />}
 
             {sec === 'ai' && <AiSection />}
+            {sec === 'asr' && <AsrSettings />}
 
             {sec === 'focus' && (
               <>

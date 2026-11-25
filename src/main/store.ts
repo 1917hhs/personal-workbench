@@ -41,6 +41,8 @@ export const DEFAULT_SETTINGS = {
   libraryDir: '',
   map: { provider: 'esri', key: '' },
   focus: { work: 25, shortBreak: 5, longBreak: 15, sound: true },
+  // 语音识别：选用的本机识别模型 id（模型文件在用户数据目录 asr-models 下）
+  asr: { model: '', dir: '' },
   ai: { level: 'off', port: 17321, token: '' },
   members: [] as { id: string; name: string; title?: string }[],
   // 项目目录模板：可以存多套，应对不同类型的工作。文件夹可以用「/」写多层，如「05 施工图/结构」

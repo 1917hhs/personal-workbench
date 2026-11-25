@@ -29,6 +29,7 @@
     "chokidar": "^3.6.0",
     "leaflet": "^1.9.4",
     "mammoth": "^1.8.0",
+    "sherpa-onnx-node": "^2.0.3",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
@@ -48,6 +49,9 @@
   "build": {
     "appId": "local.projectdesk",
     "productName": "个人工作台",
+    "asarUnpack": [
+      "**/node_modules/sherpa-onnx-*/**"
+    ],
     "files": [
       "out/**"
     ],
@@ -59,6 +63,7 @@
       "signAndEditExecutable": false
     },
     "nsis": {
+      "include": "build/installer.nsh",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,

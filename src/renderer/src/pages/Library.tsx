@@ -80,14 +80,20 @@ export default function Library({ focusId }: { focusId?: string }) {
         const names = r.untracked.slice(0, 10).map((x: string) => '· ' + x).join('\n') + (r.untracked.length > 10 ? `\n…等 ${r.untracked.length} 个` : '')
         if (confirm(`资料库文件夹里有 ${r.untracked.length} 个文件还没登记在资料库里：\n${names}\n\n把它们加进资料库？（按所在的子文件夹归类）`)) addRels = r.untracked
       }
-      if (removeIds.length || addRels.length) {
-        setData({ library: await api.call('library:applyScan', removeIds, addRels) })
+      let retypeIds: string[] = []
+      if (r.retype?.length) {
+        const names = r.retype.slice(0, 10).map((x: any) => `· ${x.name}：${x.from} → ${x.to}`).join('\n') + (r.retype.length > 10 ? `\n…等 ${r.retype.length} 份` : '')
+        if (confirm(`下面 ${r.retype.length} 份资料放在别的类型的文件夹里，和登记的类型对不上：\n${names}\n\n按所在文件夹改成对应的类型？`)) retypeIds = r.retype.map((x: any) => x.id)
+      }
+      if (removeIds.length || addRels.length || retypeIds.length) {
+        setData({ library: await api.call('library:applyScan', removeIds, addRels, retypeIds) })
         if (removeIds.length) done.push(`移除 ${removeIds.length} 份`)
         if (addRels.length) done.push(`新加入 ${addRels.length} 份`)
+        if (retypeIds.length) done.push(`改了 ${retypeIds.length} 份的类型`)
         if (removeIds.includes(sel || '')) setSel(null)
         await scan()
       }
-      toast(done.length ? done.join('；') : r.missing.length || r.untracked.length ? '没有改动' : '资料库和文件夹一致，没有需要更新的')
+      toast(done.length ? done.join('；') : r.missing.length || r.untracked.length || r.retype?.length ? '没有改动' : '资料库和文件夹一致，没有需要更新的')
     } catch (e) {
       toast(errMsg(e))
     }
@@ -103,7 +109,14 @@ export default function Library({ focusId }: { focusId?: string }) {
     }
   }
 
-  const save = async (patch: any) => setData({ library: await api.call('library:save', { ...cur, ...patch }) })
+  const save = async (patch: any) => {
+    try {
+      setData({ library: await api.call('library:save', { ...cur, ...patch }) })
+    } catch (e) {
+      toast(errMsg(e))
+      api.call('library:scan').then((r: any) => setData({ library: r.library })).catch(() => {})
+    }
+  }
 
   const remove = async () => {
     if (!cur) return

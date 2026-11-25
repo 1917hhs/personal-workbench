@@ -6,7 +6,8 @@ import * as XLSX from 'xlsx'
 import type { Kind, Store } from './store'
 import { importPaths, previewData, safeJoin } from './files'
 import { clean as cleanName, storeCompanyFiles, storeInquiryFiles, trashInquiryFiles } from './procure'
-import { applyLibraryScan, importToLibrary, libAbs, libraryTypeDir, moveLibraryDir, renameLibraryType, scanLibrary } from './library'
+import { ASR_MODELS, asrStatus, cancelDownload, defaultAsrRoot, downloadModel, isInstalled, moveAsrRoot, removeModel, setAsrRoot, transcribe } from './asr'
+import { applyLibraryScan, importToLibrary, libAbs, libraryTypeDir, moveLibraryDir, moveToTypeDir, renameLibraryType, scanLibrary } from './library'
 import { listHistory, listPages, purgePage, readVersion, savePage } from './kb'
 import { exportPack, importPack, packInfo } from './pack'
 import { afterProjectRename, assertNotRoot, fileIndex, norm, projectRoot, scanProject, searchAll, upsert } from './shared'
@@ -557,8 +558,21 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return store.library
   })
   h('library:save', (item: any) => {
+    const old = store.library.find((x) => x.id === item.id)
+    const oldType = old?.type
     upsert(store.library, item)
+    // 改了类型：文件跟着挪到新类型的子文件夹
+    const cur = store.library.find((x) => x.id === item.id)
+    let moveErr = ''
+    if (old && cur && item.type !== undefined && item.type !== oldType) {
+      try {
+        moveToTypeDir(store, cur, oldType)
+      } catch (e: any) {
+        moveErr = e?.code === 'EBUSY' || e?.code === 'EPERM' ? '文件正被别的程序打开' : String(e?.message || e)
+      }
+    }
     store.save('library')
+    if (moveErr) throw new Error(`类型已改，但文件没能挪到新类型的文件夹（${moveErr}）。关掉文件后在资料库点「刷新」可按文件夹重新归类。`)
     return store.library
   })
   h('library:delete', async (id: string) => {
@@ -573,7 +587,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return store.library
   })
   h('library:scan', () => scanLibrary(store))
-  h('library:applyScan', (removeIds: string[], addRels: string[]) => applyLibraryScan(store, removeIds, addRels))
+  h('library:applyScan', (removeIds: string[], addRels: string[], retypeIds?: string[]) => applyLibraryScan(store, removeIds, addRels, retypeIds))
   h('library:abs', (id: string) => {
     const item = store.library.find((x) => x.id === id)
     return item ? libAbs(store, item) : null
@@ -617,6 +631,46 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   })
 
   // ---------- 数据包 ----------
+  // ---------- 语音识别（本机离线） ----------
+  const asrSel = () => store.settings.asr?.model || ''
+  const setAsr = (id: string) => {
+    store.settings.asr = { ...(store.settings.asr || {}), model: id }
+    store.save('settings')
+  }
+  setAsrRoot(store.settings.asr?.dir || '')
+  h('asr:status', () => asrStatus(asrSel()))
+  // 换模型存放位置（空 = 恢复默认：软件安装目录）
+  h('asr:setDir', (dir: string) => {
+    const to = moveAsrRoot(dir)
+    const custom = dir && path.resolve(to).toLowerCase() !== path.resolve(defaultAsrRoot()).toLowerCase() ? to : ''
+    store.settings.asr = { ...(store.settings.asr || {}), dir: custom }
+    store.save('settings')
+    setAsrRoot(custom)
+    return { status: asrStatus(asrSel()), settings: store.settings }
+  })
+  h('asr:download', async (id: string) => {
+    await downloadModel(id, (p) => getWin()?.webContents.send('asr:progress', p))
+    // 装好第一个识别模型时自动选用
+    if (ASR_MODELS.find((m) => m.id === id)?.kind === 'asr' && !isInstalled(asrSel())) setAsr(id)
+    return { status: asrStatus(asrSel()), settings: store.settings }
+  })
+  h('asr:cancel', (id: string) => cancelDownload(id))
+  h('asr:remove', (id: string) => {
+    removeModel(id)
+    if (asrSel() === id) setAsr(ASR_MODELS.find((m) => m.kind === 'asr' && isInstalled(m.id))?.id || '')
+    return { status: asrStatus(asrSel()), settings: store.settings }
+  })
+  h('asr:select', (id: string) => {
+    if (!isInstalled(id)) throw new Error('先安装这个模型')
+    setAsr(id)
+    return { status: asrStatus(asrSel()), settings: store.settings }
+  })
+  h('asr:transcribe', (samples: Float32Array) => {
+    const id = asrSel()
+    if (!id || !isInstalled(id)) throw new Error('还没有可用的识别模型，请先到 设置 → 语音识别 里安装一个')
+    return transcribe(id, samples, (done, total) => getWin()?.webContents.send('asr:part', done, total))
+  })
+
   h('pack:export', (o: any) => exportPack(store, o, (done, total) => getWin()?.webContents.send('pack:progress', done, total)))
   h('pack:pick', async () => {
     const r = await dialog.showOpenDialog(getWin()!, { title: '选择数据包文件夹（里面有 manifest.json）', properties: ['openDirectory'] })
