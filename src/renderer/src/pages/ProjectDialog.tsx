@@ -25,7 +25,18 @@ export default function ProjectDialog({ project, onClose, onCreated }: { project
       rootPath: ''
     }
   )
-  const [folderMode, setFolderMode] = useState<'template' | 'existing' | 'none'>(settings.projectsRoot ? 'template' : 'existing')
+  // 新建文件夹的方式记住上次的选择
+  const [folderMode, setFolderModeState] = useState<'template' | 'empty' | 'existing' | 'none'>(() => {
+    const last = localStorage.getItem('newProjFolderMode') as any
+    if (!settings.projectsRoot) return last === 'none' ? 'none' : 'existing'
+    return ['template', 'empty', 'existing', 'none'].includes(last) ? last : 'empty'
+  })
+  const setFolderMode = (m: 'template' | 'empty' | 'existing' | 'none') => {
+    setFolderModeState(m)
+    try {
+      localStorage.setItem('newProjFolderMode', m)
+    } catch {}
+  }
   const [existing, setExisting] = useState('')
   const [templateId, setTemplateId] = useState<string>(settings.defaultTemplateId || settings.templates?.[0]?.id)
   const set = (k: string, v: any) => setP((x: any) => ({ ...x, [k]: v }))
@@ -61,6 +72,17 @@ export default function ProjectDialog({ project, onClose, onCreated }: { project
         onCreated?.(q.id)
       } else {
         await saveProject(q)
+        // 改了项目名 / 编号，而文件夹原来就是按项目名命名的：问要不要文件夹一起改名
+        const fname = (x: any) => [x.code, x.name].filter(Boolean).join(' ').trim().replace(/[\\/:*?"<>|]/g, '_')
+        const base = String(project.rootPath || '').split(/[\\/]/).pop()
+        const to = fname(q)
+        if (project.rootPath && to && to !== base && (base === fname(project) || base === String(project.name).trim()) && confirm(`项目文件夹也改名为「${to}」？`)) {
+          try {
+            setData({ projects: await api.call('projects:renameFolder', q.id, to) })
+          } catch (e) {
+            toast('项目信息已保存，但文件夹没改名：' + errMsg(e))
+          }
+        }
       }
       onClose()
     } catch (e) {
@@ -205,8 +227,21 @@ export default function ProjectDialog({ project, onClose, onCreated }: { project
           <div className="field">
             <label>项目文件夹</label>
             <label className="row">
+              <input type="radio" checked={folderMode === 'empty'} onChange={() => setFolderMode('empty')} />
+              <span style={{ whiteSpace: 'nowrap' }}>新建空文件夹</span>
+              <span
+                className="faint"
+                style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
+                title={settings.projectsRoot ? `${settings.projectsRoot}\\${[p.code, p.name].filter(Boolean).join(' ').trim()}` : ''}
+              >
+                {settings.projectsRoot
+                  ? `在 ${String(settings.projectsRoot).split(/[\\/]/).filter(Boolean).pop()} 下建「${[p.code, p.name].filter(Boolean).join(' ').trim() || '项目名'}」`
+                  : '（先在设置里指定项目根目录）'}
+              </span>
+            </label>
+            <label className="row">
               <input type="radio" checked={folderMode === 'template'} onChange={() => setFolderMode('template')} />
-              按模板新建
+              <span style={{ whiteSpace: 'nowrap' }}>按模板新建</span>
               <select
                 className="input"
                 style={{ width: 'auto' }}
@@ -222,7 +257,7 @@ export default function ProjectDialog({ project, onClose, onCreated }: { project
                   </option>
                 ))}
               </select>
-              <span className="faint">{settings.projectsRoot ? `在 ${settings.projectsRoot} 下` : '（先在设置里指定项目根目录）'}</span>
+              <span className="faint" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={settings.projectsRoot || ''}>{settings.projectsRoot ? `在 ${String(settings.projectsRoot).split(/[\\/]/).filter(Boolean).pop()} 下` : '（先在设置里指定项目根目录）'}</span>
             </label>
             <label className="row">
               <input type="radio" checked={folderMode === 'existing'} onChange={() => setFolderMode('existing')} />

@@ -75,6 +75,16 @@ export default function App() {
     toastTimer.current = setTimeout(() => (setToastMsg(''), setToastAct(null)), action ? 6000 : 3200)
   }, [])
 
+  // 没被单独处理的操作失败（比如打开的文件已被改名）：用提示条告诉用户，而不是什么都不发生
+  useEffect(() => {
+    const f = (e: PromiseRejectionEvent) => {
+      const m = errMsg(e.reason)
+      if (m && !/已取消|AbortError/.test(m)) toast(m)
+    }
+    window.addEventListener('unhandledrejection', f)
+    return () => window.removeEventListener('unhandledrejection', f)
+  }, [toast])
+
   const setData = useCallback((patch: Partial<AppData>) => setDataState((d) => ({ ...d!, ...patch })), [])
 
   const ctx: Ctx | null = useMemo(() => {

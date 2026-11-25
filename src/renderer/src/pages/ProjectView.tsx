@@ -51,12 +51,25 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
       return
     }
     try {
-      setRes(await api.call('project:tree', id, showHidden))
+      const r = await api.call('project:tree', id, showHidden)
+      setRes(r)
+      if (r?.relinked) {
+        const d = await api.call('app:init')
+        setData({ projects: d.projects, inquiries: d.inquiries })
+        toast('项目文件夹在资源管理器里改了名，已自动更新为：' + r.root)
+      }
     } catch (e) {
       toast(errMsg(e))
     }
     setLoading(false)
   }, [id, showHidden, project?.rootPath])
+
+  // 从资源管理器切回来时重新读一遍（在外面给项目文件夹改名，监听不一定能收到）
+  useEffect(() => {
+    const f = () => load()
+    window.addEventListener('focus', f)
+    return () => window.removeEventListener('focus', f)
+  }, [load])
 
   useEffect(() => {
     load()
@@ -134,9 +147,23 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
   }
 
   const rename = async (n: TNode) => {
+    if (!n.rel) return renameRoot()
     const name = await ask('重命名', n.name)
     if (!name || name === n.name) return
     await run(async () => setSelected(await api.call('fs:rename', id, n.rel, name)))
+  }
+
+  // 给项目文件夹本身改名（磁盘上的文件夹跟着改，项目里的引用、询价文件路径一起更新）
+  const renameRoot = async () => {
+    const cur = String(res?.root || project?.rootPath || '').split(/[\\/]/).pop() || ''
+    const name = (await ask('项目文件夹改名', cur, '文件夹的新名字'))?.trim()
+    if (!name || name === cur) return
+    try {
+      setData({ projects: await api.call('projects:renameFolder', id, name) })
+      toast('项目文件夹已改名为「' + name + '」')
+    } catch (e) {
+      toast(errMsg(e))
+    }
   }
 
   const trash = async (n: TNode) => {
@@ -254,6 +281,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
     if (!n.dir) items.push(...tagMenu(n))
     if (inGroup) items.push({ label: '移出版本组', onClick: () => setMeta(n.rel, { noGroup: true }) })
     else if (!n.dir && meta[n.rel]?.noGroup) items.push({ label: '重新参与版本归组', onClick: () => setMeta(n.rel, { noGroup: null }) })
+    if (!n.rel) items.push({ label: '项目文件夹改名…', onClick: () => renameRoot() })
     if (n.rel) {
       items.push(
         { label: '重命名', onClick: () => rename(n) },
@@ -332,7 +360,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
         <span className="spacer" />
         <Tabs value={tab} onChange={setTab} options={[{ id: 'map', label: '导图' }, { id: 'detail', label: '详情' }]} />
         <button className="btn" onClick={() => setEditing(true)}>编辑信息</button>
-        {project.rootPath && <button className="btn" onClick={() => api.call('shell:openPath', project.rootPath)}>打开文件夹</button>}
+        {project.rootPath && <button className="btn" onClick={() => api.call('projects:openFolder', id).then(() => load()).catch((e: any) => (toast(errMsg(e)), load()))}>打开文件夹</button>}
         <button className="btn danger" onClick={removeProject}>移除</button>
       </div>
 
@@ -345,7 +373,19 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
       ) : loading ? (
         <Empty title="正在读取项目文件夹…" />
       ) : res && !res.exists ? (
-        <Empty title="找不到项目文件夹" text={res.root + '\n可能被移动、改名，或所在的盘没有接上。'}>
+        <Empty title="找不到项目文件夹" text={res.root + '\n可能在资源管理器里改了名、挪走了，或所在的盘没有接上。'}>
+          {res.candidates?.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div className="faint" style={{ fontSize: 12, marginBottom: 6 }}>是不是改名成了下面哪个？点一下就关联过去：</div>
+              <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'center', gap: 6 }}>
+                {res.candidates.map((c: string) => (
+                  <button key={c} className="btn small" title={c} onClick={() => saveProject({ ...project, rootPath: c })}>
+                    📁 {c.split(/[\\/]/).pop()}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <button className="btn primary" onClick={linkFolder}>重新指定文件夹…</button>
         </Empty>
       ) : (
@@ -552,6 +592,7 @@ function FilePanel(props: any) {
           <button className="btn small" onClick={() => api.call('fs:reveal', id, n.rel)}>在资源管理器中显示</button>
           <button className="btn small" onClick={() => api.call('fs:copyPath', id, n.rel).then(() => toast('路径已复制'))}>复制路径</button>
           {!isRoot && <button className="btn small" onClick={() => props.onRename(n)}>重命名</button>}
+          {isRoot && <button className="btn small" onClick={() => props.onRename(n)}>文件夹改名</button>}
           {isRoot && <button className="btn small" onClick={props.onEditProject}>编辑项目信息</button>}
           {n.dir && (n.children || []).some((c) => c.dir && !c.virtual) && (
             <>

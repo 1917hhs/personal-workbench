@@ -42,12 +42,24 @@ export function refStatus(refs: any[]) {
 }
 
 export function scanProject(store: Store, id: string, showHidden = false) {
+  const p = store.projects.find((x) => x.id === id)
+  let relinked = false
+  if (p?.rootPath && !fs.existsSync(p.rootPath)) {
+    const r = relinkProject(store, p)
+    if (!r.relinked) return { exists: false, root: p.rootPath, candidates: r.candidates }
+    relinked = true
+  }
   const root = projectRoot(store, id)
-  if (!fs.existsSync(root)) return { exists: false, root }
+  if (!fs.existsSync(root)) return { exists: false, root, candidates: [] }
+  // 记下文件夹身份，以后在资源管理器里改了名也能自动找回
+  if (p && !p.rootId) {
+    p.rootId = folderId(root)
+    if (p.rootId) store.save('projects')
+  }
   const meta = store.meta(id)
   const r = scanTree(root, compileHide(hidePatterns(store)), meta.nodes, showHidden)
   fileIndex.set(id, r.flat)
-  return { exists: true, root, meta, refs: refStatus(meta.refs), ...r }
+  return { exists: true, root, relinked, meta, refs: refStatus(meta.refs), ...r }
 }
 
 export const norm = (p: string) => path.resolve(p).toLowerCase()
@@ -73,20 +85,93 @@ export function afterProjectRename(store: Store, id: string, oldRel: string, new
     if (r.parentRel === oldRel || String(r.parentRel).startsWith(oldRel + '/')) r.parentRel = newRel + r.parentRel.slice(oldRel.length)
   }
   store.saveMeta(id, meta)
-  const oldAbs = norm(fromAbs)
+  retargetAbs(store, fromAbs, toAbs)
+}
+
+/**
+ * 某个文件夹换了位置（改名 / 移动 / 项目文件夹重新关联）后，把记着它绝对路径的地方一起改掉：
+ * 各项目里挂的引用、询价里的询价文件和回价文件
+ */
+export function retargetAbs(store: Store, fromAbs: string, toAbs: string) {
+  const a = norm(fromAbs)
+  if (!a || a === norm(toAbs)) return
+  const fix = (s: string) => {
+    const n = norm(s)
+    return n === a || n.startsWith(a + path.sep) ? path.join(toAbs, path.resolve(s).slice(path.resolve(fromAbs).length)) : s
+  }
   for (const p of store.projects) {
     const m = store.meta(p.id)
     let changed = false
     for (const r of m.refs) {
-      const n = norm(r.path)
-      if (n === oldAbs || n.startsWith(oldAbs + path.sep)) {
-        r.path = toAbs + r.path.slice(fromAbs.length)
-        r.name = path.basename(r.path)
+      const nw = fix(r.path)
+      if (nw !== r.path) {
+        r.path = nw
+        r.name = path.basename(nw)
         changed = true
       }
     }
     if (changed) store.saveMeta(p.id, m)
   }
+  let inqChanged = false
+  const walk = (o: any): any => {
+    if (typeof o === 'string') {
+      if (!/^[a-z]:[\\/]|^\\\\/i.test(o)) return o
+      const nw = fix(o)
+      if (nw !== o) inqChanged = true
+      return nw
+    }
+    if (Array.isArray(o)) return o.map(walk)
+    if (o && typeof o === 'object') {
+      for (const k of Object.keys(o)) o[k] = walk(o[k])
+      return o
+    }
+    return o
+  }
+  store.inquiries = store.inquiries.map(walk)
+  if (inqChanged) store.save('inquiries')
+}
+
+/** 文件夹的身份（Windows 上改名、同盘移动都不变），用来找回被改名的项目文件夹 */
+export function folderId(dir: string) {
+  try {
+    const st = fs.statSync(dir, { bigint: true })
+    return st.isDirectory() ? `${st.dev}:${st.ino}` : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 项目文件夹找不到时：在原来的上级文件夹里按身份找（在资源管理器里改了名）。找到就自动改过来。
+ * 找不到时返回同级的几个候选文件夹（没被别的项目用的、最近改过的在前），给界面让用户点选。
+ */
+export function relinkProject(store: Store, p: any): { relinked: boolean; candidates: string[] } {
+  const old = p?.rootPath
+  if (!old || fs.existsSync(old)) return { relinked: false, candidates: [] }
+  const parent = path.dirname(old)
+  if (!fs.existsSync(parent)) return { relinked: false, candidates: [] }
+  const used = new Set(store.projects.filter((x) => x.id !== p.id && x.rootPath).map((x) => norm(x.rootPath)))
+  const dirs = fs
+    .readdirSync(parent, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && !used.has(norm(path.join(parent, d.name))))
+    .map((d) => path.join(parent, d.name))
+  if (p.rootId) {
+    const hit = dirs.find((d) => folderId(d) === p.rootId)
+    if (hit) {
+      p.rootPath = hit
+      store.save('projects')
+      retargetAbs(store, old, hit)
+      return { relinked: true, candidates: [] }
+    }
+  }
+  const mtime = (d: string) => {
+    try {
+      return fs.statSync(d).mtimeMs
+    } catch {
+      return 0
+    }
+  }
+  return { relinked: false, candidates: dirs.sort((x, y) => mtime(y) - mtime(x)).slice(0, 6) }
 }
 
 export const stripHtml = (h: string) =>

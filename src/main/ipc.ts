@@ -10,7 +10,7 @@ import { ASR_MODELS, asrStatus, cancelDownload, defaultAsrRoot, downloadModel, i
 import { applyLibraryScan, importToLibrary, libAbs, libraryTypeDir, moveLibraryDir, moveToTypeDir, renameLibraryType, scanLibrary } from './library'
 import { listHistory, listPages, purgePage, readVersion, savePage } from './kb'
 import { exportPack, importPack, packInfo } from './pack'
-import { afterProjectRename, assertNotRoot, fileIndex, norm, projectRoot, scanProject, searchAll, upsert } from './shared'
+import { afterProjectRename, assertNotRoot, fileIndex, folderId, norm, projectRoot, relinkProject, retargetAbs, scanProject, searchAll, upsert } from './shared'
 import { aiLog, aiStatus, restartMcp, undoAiAction } from './mcp'
 import { findRefs, importMedia, purgeMedia, refPath, refStatus as memoRefStatus, renameProjectRefs, saveMedia, type RefTarget } from './memo'
 import { deleteSection, getProfile, moveSection, profileMarkdown, revertChange, saveSection } from './profile'
@@ -71,8 +71,15 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
 
   h('projects:save', (p: any) => {
     const old = store.projects.find((x) => x.id === p.id)
-    if (p.rootPath && p.rootPath !== old?.rootPath) checkProjectFolder(p.rootPath)
+    const moved = p.rootPath && p.rootPath !== old?.rootPath
+    if (moved) checkProjectFolder(p.rootPath)
     upsert(store.projects, p)
+    if (moved) {
+      const cur = store.projects.find((x) => x.id === p.id)
+      cur.rootId = folderId(p.rootPath)
+      // 重新关联到改了名 / 挪了位置的文件夹：引用、询价文件路径跟着改
+      if (old?.rootPath) retargetAbs(store, old.rootPath, p.rootPath)
+    }
     store.save('projects')
     return store.projects
   })
@@ -100,25 +107,60 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return n
   }
 
-  h('projects:create', (p: any, folder: { mode: 'template' | 'existing' | 'none'; path?: string; templateId?: string }) => {
-    if (folder.mode === 'template') {
+  // 新建项目的文件夹：template 按模板建；empty 只建一个以项目命名的空文件夹；existing 关联已有；none 不关联
+  h('projects:create', (p: any, folder: { mode: 'template' | 'empty' | 'existing' | 'none'; path?: string; templateId?: string }) => {
+    if (folder.mode === 'template' || folder.mode === 'empty') {
       const base = store.settings.projectsRoot
       if (!base) throw new Error('请先在设置里指定「项目根目录」')
       const name = cleanName([p.code, p.name].filter(Boolean).join(' '))
       if (!String(p.name || '').trim()) throw new Error('请先填写项目名称')
       const dir = path.join(base, name)
-      const t = templateOf(folder.templateId)
+      if (store.projects.some((x) => x.rootPath && norm(x.rootPath) === norm(dir))) throw new Error(`「${name}」文件夹已经是别的项目的文件夹了，换个名字`)
       fs.mkdirSync(dir, { recursive: true })
-      makeFolders(dir, t.folders)
+      if (folder.mode === 'template') {
+        const t = templateOf(folder.templateId)
+        makeFolders(dir, t.folders)
+        p.templateId = t.id
+      }
       p.rootPath = dir
-      p.templateId = t.id
     } else if (folder.mode === 'existing') {
       checkProjectFolder(folder.path)
       p.rootPath = folder.path
     }
+    if (p.rootPath) p.rootId = folderId(p.rootPath)
     upsert(store.projects, p)
     store.save('projects')
     return store.projects
+  })
+
+  // 在软件里给项目文件夹改名：文件夹改名，项目路径、引用、询价文件路径一起改
+  h('projects:renameFolder', async (id: string, name: string) => {
+    const p = store.projects.find((x) => x.id === id)
+    if (!p?.rootPath) throw new Error('项目还没有关联文件夹')
+    if (!fs.existsSync(p.rootPath)) throw new Error('找不到项目文件夹：' + p.rootPath)
+    const nm = cleanName(name)
+    if (!nm) throw new Error('名字不能为空')
+    const to = path.join(path.dirname(p.rootPath), nm)
+    if (to === p.rootPath) return store.projects
+    if (norm(to) !== norm(p.rootPath) && fs.existsSync(to)) throw new Error(`同一位置已经有「${nm}」了`)
+    const from = p.rootPath
+    // 正在监听这个文件夹时 Windows 不让改名：先停掉监听（界面会按新路径重新监听）
+    await watcher?.close()
+    watcher = null
+    fs.renameSync(from, to)
+    p.rootPath = to
+    store.save('projects')
+    retargetAbs(store, from, to)
+    return store.projects
+  })
+  h('projects:openFolder', (id: string) => {
+    const p = store.projects.find((x) => x.id === id)
+    if (!p?.rootPath) throw new Error('项目还没有关联文件夹')
+    if (!fs.existsSync(p.rootPath)) {
+      relinkProject(store, p)
+      if (!fs.existsSync(p.rootPath)) throw new Error('找不到项目文件夹（可能在资源管理器里改了名或挪走了）：' + p.rootPath)
+    }
+    return shell.openPath(p.rootPath)
   })
 
   // rel 为空：补到项目根目录；否则补到项目里的这个子文件夹
@@ -468,8 +510,14 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return importPaths(dest, paths, r.response === 0 ? 'move' : 'copy')
   })
 
-  h('fs:open', (id: string, rel: string) => shell.openPath(abs(id, rel)))
-  h('fs:reveal', (id: string, rel: string) => shell.showItemInFolder(abs(id, rel)))
+  // 打开前先确认还在，免得弹 Windows「找不到文件」的对话框
+  const existing = (id: string, rel: string) => {
+    const a = abs(id, rel)
+    if (!fs.existsSync(a)) throw new Error('找不到：' + a + '（可能在资源管理器里改了名或挪走了，点「刷新」看看）')
+    return a
+  }
+  h('fs:open', (id: string, rel: string) => shell.openPath(existing(id, rel)))
+  h('fs:reveal', (id: string, rel: string) => shell.showItemInFolder(existing(id, rel)))
   h('fs:copyPath', (id: string, rel: string) => clipboard.writeText(abs(id, rel)))
   h('shell:openPath', (p: string) => shell.openPath(p))
   h('shell:reveal', (p: string) => shell.showItemInFolder(p))
