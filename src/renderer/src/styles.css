@@ -553,7 +553,12 @@ tr.drop-row.over td { background: color-mix(in srgb, var(--accent) 10%, transpar
 tr.drop-row.over td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 /* 发包与回价：每一轮回价和它的文件 */
 .round-line { margin-bottom: 6px; line-height: 1.5; }
-.round-file { font-size: 11.5px; opacity: 0.7; max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbl-wrap { max-width: 100%; overflow-x: auto; }
+.sends-tbl td:nth-child(2), .sends-tbl td:nth-child(4) { width: 150px; }
+.sends-tbl td:nth-child(3), .sends-tbl td:nth-child(5) { width: 110px; }
+.sends-tbl td:nth-child(6) { min-width: 200px; }
+.sends-tbl td:last-child { width: 32px; }
+.round-file { font-size: 11.5px; opacity: 0.7; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 画布：点阵背景（随平移缩放移动）、浮动的缩放条和提示、右下角缩略图 */
 .map { background-color: var(--map-bg); background-image: radial-gradient(var(--map-dot) 1.1px, transparent 1.3px); }

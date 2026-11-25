@@ -284,7 +284,7 @@ function InquiryDetail({ x, onDeleted }: { x: any; onDeleted: () => void }) {
           {sends.length === 0 && <div className="faint" style={{ fontSize: 12 }}>点「+ 发给单位」选择要询价的供应商。{x.discipline ? `专业标签含「${x.discipline}」的供应商会排在前面。` : '先填「询价专业」，可以按专业推荐供应商。'}</div>}
           {sends.length > 0 && <div className="faint" style={{ fontSize: 11.5, marginBottom: 6 }}>收到回价文件时，直接拖到对应单位那一行，就会打开「记录回价」并附上文件，收到日期默认今天。</div>}
           {sends.length > 0 && (
-            <table className="tbl">
+            <div className="tbl-wrap"><table className="tbl sends-tbl">
               <thead>
                 <tr>
                   <th>单位</th>
@@ -309,22 +309,22 @@ function InquiryDetail({ x, onDeleted }: { x: any; onDeleted: () => void }) {
                       onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setDragRow(null)}
                       onDrop={(e) => dropQuote(s, e)}
                     >
-                      <td style={{ minWidth: 170 }}>
+                      <td style={{ minWidth: 150 }}>
                         <span className="click" onClick={() => c && go({ page: 'contacts', companyId: c.id })}>{c?.name || '（已删除的单位）'}</span>
                         {c?.grade && c.grade !== '待评价' && <span className="tag" style={{ marginLeft: 4 }}>{c.grade}</span>}
                       </td>
-                      <td><input type="date" className="input" style={{ width: 140 }} defaultValue={s.date} onBlur={(e) => updSend(s.id, { date: e.target.value })} /></td>
+                      <td><input type="date" className="input" style={{ width: '100%', minWidth: 118 }} defaultValue={s.date} onBlur={(e) => updSend(s.id, { date: e.target.value })} /></td>
                       <td>
-                        <select className="input" style={{ width: 100 }} value={s.channel || ''} onChange={(e) => updSend(s.id, { channel: e.target.value })}>
+                        <select className="input" style={{ width: '100%', minWidth: 76 }} value={s.channel || ''} onChange={(e) => updSend(s.id, { channel: e.target.value })}>
                           <option value="">—</option>
                           {INQ.channels.map((o) => (
                             <option key={o}>{o}</option>
                           ))}
                         </select>
                       </td>
-                      <td><input type="date" className="input" style={{ width: 140 }} defaultValue={s.deadline || x.deadline || ''} onBlur={(e) => updSend(s.id, { deadline: e.target.value })} /></td>
+                      <td><input type="date" className="input" style={{ width: '100%', minWidth: 118 }} defaultValue={s.deadline || x.deadline || ''} onBlur={(e) => updSend(s.id, { deadline: e.target.value })} /></td>
                       <td>
-                        <select className="input" style={{ width: 100 }} value={s.status} onChange={(e) => updSend(s.id, { status: e.target.value })}>
+                        <select className="input" style={{ width: '100%', minWidth: 76 }} value={s.status} onChange={(e) => updSend(s.id, { status: e.target.value })}>
                           {INQ.sendStatus.map((o) => (
                             <option key={o}>{o}</option>
                           ))}
@@ -364,7 +364,7 @@ function InquiryDetail({ x, onDeleted }: { x: any; onDeleted: () => void }) {
                   )
                 })}
               </tbody>
-            </table>
+            </table></div>
           )}
         </div>
       </div>
