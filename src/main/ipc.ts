@@ -369,12 +369,22 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return meta
   })
 
-  h('project:meta', (id: string, rel: string, patch: any) => {
-    const meta = store.meta(id)
+  const patchNode = (meta: any, rel: string, patch: any) => {
     const cur = { ...(meta.nodes[rel] || {}), ...patch }
     for (const k of Object.keys(cur)) if (cur[k] === null || cur[k] === '' || cur[k] === undefined) delete cur[k]
     if (Object.keys(cur).length) meta.nodes[rel] = cur
     else delete meta.nodes[rel]
+  }
+  h('project:meta', (id: string, rel: string, patch: any) => {
+    const meta = store.meta(id)
+    patchNode(meta, rel, patch)
+    store.saveMeta(id, meta)
+    return meta
+  })
+  // 一次改多个节点（如收起 / 展开所有子文件夹），只写一次文件
+  h('project:metaMany', (id: string, list: { rel: string; patch: any }[]) => {
+    const meta = store.meta(id)
+    for (const x of list || []) patchNode(meta, x.rel, x.patch)
     store.saveMeta(id, meta)
     return meta
   })

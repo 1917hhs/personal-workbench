@@ -42,7 +42,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
   const [selected, setSelected] = useState<string | null>(select ?? null)
   const [forceExpand, setForceExpand] = useState<Set<string>>(new Set(select ? ancestors(select) : []))
   const [centerOn, setCenterOn] = useState<string | null>(select ?? null)
-  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[]; k?: number } | null>(null)
   const [editing, setEditing] = useState(false)
 
   const load = useCallback(async () => {
@@ -165,11 +165,30 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
     }
   ]
 
+  // 收起 / 展开某文件夹下的所有子文件夹（它自己保持展开，能看到下一层）
+  const foldAll = async (n: TNode, collapse: boolean) => {
+    const list: { rel: string; patch: any }[] = [{ rel: n.rel, patch: { collapsed: false } }]
+    const walk = (x: TNode) => {
+      for (const c of x.children || []) {
+        if (!c.dir || c.virtual) continue
+        list.push({ rel: c.rel, patch: { collapsed: collapse } })
+        walk(c)
+      }
+    }
+    walk(n)
+    try {
+      const m = await api.call('project:metaMany', id, list)
+      setRes((r: any) => ({ ...r, meta: m }))
+    } catch (e) {
+      toast(errMsg(e))
+    }
+  }
+
   // 按模板补齐目录：rel 为空补到项目根目录，否则补到这个子文件夹下
   const templateItems = (rel: string): MenuItem[] => {
     const where = rel ? `「${rel.split('/').pop()}」` : '项目根目录'
     return ((settings.templates || []) as any[]).map((t) => ({
-      label: `按模板补齐：${t.name}（${t.folders.length} 个文件夹）${!rel && t.id === project?.templateId ? ' · 本项目在用' : ''}`,
+      label: `${t.name}（${t.folders.length} 个文件夹）${!rel && t.id === project?.templateId ? ' · 本项目在用' : ''}`,
       onClick: () =>
         run(async () => {
           const r2 = await api.call('projects:applyTemplate', id, t.id, rel)
@@ -201,7 +220,16 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
     if (n.dir) {
       items.push({ label: '新建子文件夹', onClick: () => newFolder(n.rel) })
       if (n.rel) items.push({ label: '聚焦此分支', onClick: () => setFocus(n.rel) })
-      items.push(...templateItems(n.rel))
+      const subDirs = (n.children || []).some((c) => c.dir && !c.virtual)
+      if (subDirs) {
+        items.push(
+          { label: '收起所有子文件夹', onClick: () => foldAll(n, true) },
+          { label: '展开所有子文件夹', onClick: () => foldAll(n, false) }
+        )
+      }
+      if ((settings.templates || []).length) {
+        items.push({ label: '按模板补齐目录 ▸', onClick: () => setMenu({ x, y, k: Date.now(), items: [{ label: n.rel ? `补到「${n.rel.split('/').pop()}」下` : '补到项目根目录', disabled: true }, ...templateItems(n.rel)] }) })
+      }
     } else {
       items.push({ label: '打开', onClick: () => api.call('fs:open', id, n.rel) })
     }
@@ -399,6 +427,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
                   onSelect={setSelected}
                   onLocate={locateSource}
                   onRemoveRef={removeRef}
+                  onFold={foldAll}
                   swatches={swatches}
                 />
               )}
@@ -406,7 +435,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
           </>
         )
       )}
-      {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu key={menu.k || 0} x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       {editing && <ProjectDialog project={project} onClose={() => setEditing(false)} />}
     </>
   )
@@ -426,6 +455,7 @@ function DetailPanel(props: {
   onSelect: (rel: string) => void
   onLocate: (abs: string) => void
   onRemoveRef: (n: TNode) => void
+  onFold: (n: TNode, collapse: boolean) => void
   swatches: any[]
 }) {
   // 不同类型的节点用不同的面板组件，避免同一组件里条件调用 Hook
@@ -521,6 +551,12 @@ function FilePanel(props: any) {
           <button className="btn small" onClick={() => api.call('fs:copyPath', id, n.rel).then(() => toast('路径已复制'))}>复制路径</button>
           {!isRoot && <button className="btn small" onClick={() => props.onRename(n)}>重命名</button>}
           {isRoot && <button className="btn small" onClick={props.onEditProject}>编辑项目信息</button>}
+          {n.dir && (n.children || []).some((c) => c.dir && !c.virtual) && (
+            <>
+              <button className="btn small" title="这个文件夹下的子文件夹全部收起，只看下一层" onClick={() => props.onFold(n, true)}>收起子文件夹</button>
+              <button className="btn small" onClick={() => props.onFold(n, false)}>全部展开</button>
+            </>
+          )}
         </div>
         <div>
           <div className="faint" style={{ marginBottom: 4 }}>颜色</div>
