@@ -153,24 +153,22 @@ export default function MindMap(props: {
     props.onCentered()
   }, [props.centerOn, items])
 
-  // 滚轮平移，Ctrl+滚轮缩放（需要非 passive 监听才能阻止默认滚动）
+  // 滚轮直接缩放（以鼠标位置为中心）；Shift+滚轮上下移动；触控板横向滑动左右移动（需要非 passive 监听才能阻止默认滚动）
   useEffect(() => {
     const el = viewRef.current!
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      if (e.ctrlKey) {
-        const r = el.getBoundingClientRect()
-        const mx = e.clientX - r.left
-        const my = e.clientY - r.top
-        setView((v) => {
-          const k = Math.min(2.5, Math.max(0.15, v.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)))
-          return { k, x: mx - (mx - v.x) * (k / v.k), y: my - (my - v.y) * (k / v.k) }
-        })
-      } else {
-        const dx = e.shiftKey ? e.deltaY : e.deltaX
-        const dy = e.shiftKey ? 0 : e.deltaY
-        setView((v) => ({ ...v, x: v.x - dx, y: v.y - dy }))
-      }
+      if (e.shiftKey) return setView((v) => ({ ...v, y: v.y - (e.deltaY || e.deltaX) }))
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return setView((v) => ({ ...v, x: v.x - e.deltaX }))
+      const r = el.getBoundingClientRect()
+      const mx = e.clientX - r.left
+      const my = e.clientY - r.top
+      // 按滚动量缩放：鼠标滚一格约 12%，触控板捏合更细腻
+      const f = Math.exp(-Math.max(-60, Math.min(60, e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY)) * 0.0019)
+      setView((v) => {
+        const k = Math.min(2.5, Math.max(0.15, v.k * f))
+        return { k, x: mx - (mx - v.x) * (k / v.k), y: my - (my - v.y) * (k / v.k) }
+      })
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
@@ -387,7 +385,7 @@ export default function MindMap(props: {
           )
         })}
       </div>
-      <div className="map-help">拖动空白处平移 · 滚轮上下移动 · Ctrl+滚轮缩放 · 文件拖到文件夹上即可归档 · 节点拖出去可发到微信 / 桌面</div>
+      <div className="map-help">拖动空白处平移 · 滚轮缩放 · Shift+滚轮上下移动 · 文件拖到文件夹上即可归档 · 节点拖出去可发到微信 / 桌面</div>
       <div className="zoom-box">
         <button className="zb" title="缩小" onClick={() => zoom(1 / 1.2)}>−</button>
         <button className="zb pct" title="恢复 100%" onClick={() => setView((v) => ({ ...v, k: 1 }))}>{Math.round(view.k * 100)}%</button>
