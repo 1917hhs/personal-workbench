@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { api, uid, useApp } from '../lib'
+import { api, uid, useApp, useRemember } from '../lib'
 import { Empty, Modal, Tabs } from '../ui'
 import Companies, { Avatar, CompanyPicker, Copyable, statusCls } from './Companies'
 
@@ -88,6 +88,7 @@ function People({ focusId }: { focusId?: string }) {
   const [q, setQ] = useState('')
   const [editing, setEditing] = useState<any>(null)
   const [sel, setSel] = useState<string | null>(focusId || null)
+  useRemember({ contactId: sel || undefined, companyId: undefined })
   const [onlyPrimary, setOnlyPrimary] = useState(false)
   const coName = (c: any) => companies.find((x) => x.id === c.companyId)?.name || c.org || ''
 

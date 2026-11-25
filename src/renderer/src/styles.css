@@ -57,6 +57,9 @@ textarea { resize: vertical; }
 .side { width: 200px; flex: none; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 12px 8px; gap: 2px; }
 .brand { font-weight: 700; font-size: 14px; white-space: nowrap; padding: 4px 8px 12px; display: flex; align-items: center; gap: 8px; }
 .brand-logo { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 12px; }
+.back-btn { display: flex; align-items: center; gap: 6px; width: 100%; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--accent); border-radius: 6px; padding: 6px 8px; margin-bottom: 10px; font-size: 13px; cursor: pointer; text-align: left; }
+.back-btn:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.back-btn .back-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .search-btn { display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 6px 8px; color: var(--text-3); margin-bottom: 10px; }
 .nav { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; border: 0; background: none; text-align: left; }
 .nav:hover { background: var(--hover); }

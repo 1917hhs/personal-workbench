@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { api, errMsg, parseLatLng, stageOf, useApp } from '../lib'
+import { api, errMsg, parseLatLng, stageOf, useApp, useRemember } from '../lib'
 import { StageDot, Tabs } from '../ui'
 import { CoordEdit } from './ProjectDetail'
 
@@ -42,6 +42,7 @@ export default function MapPage({ focusId }: { focusId?: string }) {
   const drawRef = useRef<L.Polyline | null>(null)
   const [layer, setLayer] = useState<Layer>(() => (settings.map?.provider === 'tianditu' ? 'vec' : 'img'))
   const [sel, setSel] = useState<string | null>(focusId || null)
+  useRemember({ projectId: sel || undefined })
   const pinRef = useRef<L.Marker | null>(null)
   const [mode, setMode] = useState<null | 'place' | 'draw'>(null)
   const [pts, setPts] = useState<[number, number][]>([])

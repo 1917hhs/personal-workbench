@@ -15,6 +15,35 @@ import { FocusWidget } from './pages/Focus'
 import Inquiries from './pages/Inquiries'
 import { Icon } from './icons'
 
+const PAGE_NAMES: Record<Nav['page'], string> = {
+  home: '工作台',
+  projects: '项目',
+  project: '项目',
+  todos: '待办',
+  contacts: '供应商与联系人',
+  library: '资料库',
+  kb: '备忘录',
+  map: '地图',
+  flows: '流程',
+  inquiries: '询价',
+  settings: '设置'
+}
+/** 「返回」按钮上显示的去处：页面名，能找到具体那条就带上名字 */
+function navLabel(n: Nav, d: AppData) {
+  const nm = (list: any[] | undefined, id?: string) => (id ? list?.find((x) => x.id === id)?.name : '') || ''
+  const detail =
+    n.page === 'inquiries'
+      ? nm(d.inquiries, n.inquiryId)
+      : n.page === 'project'
+        ? nm(d.projects, n.projectId)
+        : n.page === 'contacts'
+          ? nm(d.companies, n.companyId) || nm(d.contacts, n.contactId)
+          : n.page === 'flows'
+            ? nm(d.flows, n.flowId)
+            : ''
+  return detail ? `${PAGE_NAMES[n.page]} · ${detail}` : PAGE_NAMES[n.page]
+}
+
 export default function App() {
   const [data, setDataState] = useState<AppData | null>(null)
   const [nav, setNav] = useState<Nav>({ page: 'home' })
@@ -87,6 +116,70 @@ export default function App() {
 
   const setData = useCallback((patch: Partial<AppData>) => setDataState((d) => ({ ...d!, ...patch })), [])
 
+  // ---------- 导航历史：跳到别的页面后可以「返回」 ----------
+  type Hist = { nav: Nav; scroll: [number, number][] }
+  const [hist, setHist] = useState<Hist[]>([])
+  const navRef = useRef(nav)
+  navRef.current = nav
+  const extra = useRef<Partial<Nav>>({}) // 当前页面里选中的那条（询价、单位…）
+  const mainRef = useRef<HTMLElement>(null)
+  const remember = useCallback((patch: Partial<Nav>) => {
+    extra.current = { ...extra.current, ...patch }
+  }, [])
+  // 记下页面里各个滚动区域的位置（按元素顺序），返回时恢复
+  const grabScroll = (): [number, number][] => {
+    const out: [number, number][] = []
+    mainRef.current?.querySelectorAll('*').forEach((el, i) => {
+      if (el.scrollTop > 0) out.push([i, el.scrollTop])
+    })
+    return out
+  }
+  const go = useCallback((n: Nav) => {
+    const cur = { ...navRef.current, ...extra.current }
+    const clean = (x: any) => JSON.stringify(Object.fromEntries(Object.entries(x).filter(([, v]) => v != null && v !== '')))
+    if (clean(cur) !== clean(n)) setHist((h) => [...h.slice(-29), { nav: cur, scroll: grabScroll() }])
+    extra.current = {}
+    setNav(n)
+  }, [])
+  const histRef = useRef(hist)
+  histRef.current = hist
+  const back = useCallback(() => {
+    const h = histRef.current
+    const last = h[h.length - 1]
+    if (!last) return
+    histRef.current = h.slice(0, -1)
+    setHist(histRef.current)
+    extra.current = {}
+    setNav(last.nav)
+    const restore = () => {
+      const all = mainRef.current?.querySelectorAll('*')
+      if (all) for (const [i, top] of last.scroll) if (all[i]) all[i].scrollTop = top
+    }
+    setTimeout(restore, 30)
+    setTimeout(restore, 250) // 内容晚一点才撑开的区域再设一次
+  }, [])
+  // 鼠标侧键「后退」、Alt+←
+  useEffect(() => {
+    const onMouse = (e: MouseEvent) => {
+      if (e.button === 3) {
+        e.preventDefault()
+        back()
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey && e.key === 'ArrowLeft') {
+        e.preventDefault()
+        back()
+      }
+    }
+    window.addEventListener('mouseup', onMouse)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mouseup', onMouse)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [back])
+
   const ctx: Ctx | null = useMemo(() => {
     if (!data) return null
     const wrap = async (fn: () => Promise<void>) => {
@@ -101,7 +194,9 @@ export default function App() {
       data,
       setData,
       nav,
-      go: setNav,
+      go,
+      back,
+      remember,
       toast,
       saveProject: (p) => wrap(async () => setData({ projects: await api.call('projects:save', p) })),
       saveTodo: (t) => wrap(async () => setData({ todos: await api.call('todos:save', t) })),
@@ -125,7 +220,7 @@ export default function App() {
       },
       deleteItem: (kind, id) => wrap(async () => setData(await api.call(`${kind}:delete`, id))),
     }
-  }, [data, nav, setData, toast])
+  }, [data, nav, setData, toast, go, back, remember])
 
   if (!ctx) return <div className="empty">正在加载…</div>
 
@@ -135,7 +230,7 @@ export default function App() {
   const starred = projects.filter((p) => p.starred)
 
   const navBtn = (page: Nav['page'], label: string, count?: number) => (
-    <button className={'nav side-nav' + (nav.page === page || (page === 'projects' && nav.page === 'project') ? ' on' : '')} onClick={() => setNav({ page })}>
+    <button className={'nav side-nav' + (nav.page === page || (page === 'projects' && nav.page === 'project') ? ' on' : '')} onClick={() => go({ page })}>
       <Icon name={page === 'home' ? 'home' : page} />
       {label}
       {!!count && <span className="count">{count}</span>}
@@ -156,6 +251,12 @@ export default function App() {
             </span>
             <span>Ctrl K</span>
           </button>
+          {hist.length > 0 && (
+            <button className="back-btn" onClick={back} title="返回上一个页面（Alt+← 或鼠标侧键）">
+              <span>←</span>
+              <span className="back-label">返回 {navLabel(hist[hist.length - 1].nav, ctx.data)}</span>
+            </button>
+          )}
           {navBtn('home', '工作台')}
           {navBtn('projects', '项目', projects.length)}
           {navBtn('todos', '待办', todoCount)}
@@ -168,7 +269,7 @@ export default function App() {
           {navBtn('settings', '设置')}
           {starred.length > 0 && <div className="side-sub">星标项目</div>}
           {starred.map((p) => (
-            <button key={p.id} className="side-proj" onClick={() => setNav({ page: 'project', projectId: p.id })}>
+            <button key={p.id} className="side-proj" onClick={() => go({ page: 'project', projectId: p.id })}>
               <span className="stage-dot" style={{ background: stageOf(settings, p.stage).color }} />
               {p.name}
             </button>
@@ -179,7 +280,7 @@ export default function App() {
             v{ctx.data.version}
           </div>
         </aside>
-        <main className="main">
+        <main className="main" ref={mainRef}>
           {nav.page === 'home' && <Home />}
           {nav.page === 'projects' && <Projects />}
           {nav.page === 'project' && nav.projectId && <ProjectView key={nav.projectId + (nav.tab || '') + (nav.select || '')} id={nav.projectId} select={nav.select} tab={nav.tab} />}

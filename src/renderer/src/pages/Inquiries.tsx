@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { api, errMsg, uid, useApp, ymd } from '../lib'
+import { api, errMsg, uid, useApp, useRemember, ymd } from '../lib'
 import { ask, Empty, Modal } from '../ui'
 import { companyStats, CompanyPicker, DropZone, Files, useSup } from './Companies'
 
@@ -20,6 +20,7 @@ export const toUsd = (q: any) => (q.currency === 'USD' ? Number(q.amount) : q.ra
 export default function Inquiries({ focusId }: { focusId?: string }) {
   const { data, saveItem } = useApp()
   const [sel, setSel] = useState<string | null>(focusId || null)
+  useRemember({ inquiryId: sel || undefined })
   const [q, setQ] = useState('')
   const [st, setSt] = useState('')
   const [pid, setPid] = useState('')

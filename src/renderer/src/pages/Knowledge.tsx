@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, errMsg, flushers, fmtTime, uid, useApp, ymd, addDays } from '../lib'
+import { api, errMsg, flushers, fmtTime, uid, useApp, useRemember, ymd, addDays } from '../lib'
 import { Modal } from '../ui'
 import KbEditor, { KbEditorHandle, pageHref } from './KbEditor'
 import { refsOfHtml } from '../memoNodes'
@@ -21,6 +21,7 @@ export default function Knowledge({ pageId }: { pageId?: string }) {
   const { toast, go } = useApp()
   const [pages, setPages] = useState<any[]>([])
   const [cur, setCur] = useState<string | null>(pageId || null)
+  useRemember({ pageId: cur || undefined })
   const [trashView, setTrashView] = useState(false)
   const [q, setQ] = useState('')
 

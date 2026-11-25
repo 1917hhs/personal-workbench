@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, errMsg, uid, useApp, ymd } from '../lib'
+import { api, errMsg, uid, useApp, useRemember, ymd } from '../lib'
 import { ask, Empty, Tabs } from '../ui'
 
 // 单位库：业主、供应商、设计咨询、施工单位……都是「单位」，联系人绑定到单位。
@@ -278,6 +278,7 @@ export default function Companies({ focusId }: { focusId?: string }) {
   const [q, setQ] = useState('')
   const [f, setF] = useState<Record<string, string>>({})
   const [sel, setSel] = useState<string | null>(focusId || null)
+  useRemember({ companyId: sel || undefined, contactId: undefined })
 
   const stats = useMemo(() => Object.fromEntries(data.companies.map((c) => [c.id, companyStats(data.inquiries, c.id)])), [data.companies, data.inquiries])
   const list = data.companies

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, errMsg, flushers, uid, useApp } from '../lib'
+import { api, errMsg, flushers, uid, useApp, useRemember } from '../lib'
 import { Empty, Tabs } from '../ui'
 import RefPicker from './RefPicker'
 
@@ -148,6 +148,7 @@ export default function Flows({ focusId }: { focusId?: string }) {
   const { data, saveItem, deleteItem } = useApp()
   const flows = useMemo(() => [...(data.flows || [])].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))), [data.flows])
   const [cur, setCur] = useState<string | null>(focusId || null)
+  useRemember({ flowId: cur || undefined })
   const [q, setQ] = useState('')
   useEffect(() => {
     if (!cur && flows.length) setCur(flows[0].id)

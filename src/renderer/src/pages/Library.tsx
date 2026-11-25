@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, clip, errMsg, extOf, fmtSize, uid, useApp, refWarn } from '../lib'
+import { api, clip, errMsg, extOf, fmtSize, uid, useApp, useRemember, refWarn } from '../lib'
 import { ask, ContextMenu, Empty, MenuItem } from '../ui'
 import { FileBadge } from './MindMap'
 import { Preview } from './ProjectView'
@@ -13,6 +13,7 @@ export default function Library({ focusId }: { focusId?: string }) {
   const [type, setType] = useState<string>('')
   const [q, setQ] = useState('')
   const [sel, setSel] = useState<string | null>(focusId || null)
+  useRemember({ libraryId: sel || undefined })
   const [dragging, setDragging] = useState(false)
   const [typeMenu, setTypeMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   // 类型改名：资料库里对应的子文件夹也一起改名

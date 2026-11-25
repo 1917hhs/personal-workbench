@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useEffect } from 'react'
 
 declare global {
   interface Window {
@@ -218,6 +218,10 @@ export interface Ctx {
   setData: (patch: Partial<AppData>) => void
   nav: Nav
   go: (n: Nav) => void
+  /** 返回上一个页面（跳转前选中的那条、滚动位置都会恢复） */
+  back: () => void
+  /** 页面里选中了哪条：告诉导航，跳走再「返回」时能回到它 */
+  remember: (patch: Partial<Nav>) => void
   saveProject: (p: any) => Promise<void>
   saveTodo: (t: any) => Promise<void>
   deleteTodo: (id: string) => Promise<void>
@@ -244,6 +248,13 @@ export const flushers = new Set<() => Promise<any> | void>()
 
 export const AppCtx = createContext<Ctx>(null as any)
 export const useApp = () => useContext(AppCtx)
+
+/** 告诉导航这个页面当前选中了哪条：跳到别处再「返回」时回到它 */
+export function useRemember(patch: Partial<Nav>) {
+  const { remember } = useApp()
+  const k = JSON.stringify(patch)
+  useEffect(() => remember(patch), [k]) // eslint-disable-line
+}
 
 export function stageOf(settings: any, id: string) {
   return settings.stages.find((s: any) => s.id === id) || settings.stages[0]
