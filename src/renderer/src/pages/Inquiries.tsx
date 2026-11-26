@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api, errMsg, uid, useApp, useRemember, ymd } from '../lib'
 import { ask, Empty, Modal } from '../ui'
 import { companyStats, CompanyPicker, DropZone, Files, useSup } from './Companies'
@@ -24,6 +24,7 @@ export default function Inquiries({ focusId }: { focusId?: string }) {
   const [q, setQ] = useState('')
   const [st, setSt] = useState('')
   const [pid, setPid] = useState('')
+  const [exp, setExp] = useState<{ projectId: string; ids: string[] | null } | null>(null)
 
   const list = data.inquiries
     .filter((x) => !st || x.status === st)
@@ -59,8 +60,10 @@ export default function Inquiries({ focusId }: { focusId?: string }) {
           ))}
         </select>
         <span className="spacer" />
+        <button className="btn" onClick={() => setExp({ projectId: pid || cur?.projectId || '', ids: null })} disabled={!data.inquiries.length} title="导出一个项目全部（或选中几条）询价的汇总表">导出汇总</button>
         <button className="btn primary" onClick={add}>+ 新建询价</button>
       </div>
+      {exp && <ExportDialog init={exp} onClose={() => setExp(null)} />}
       <div className="lib-wrap">
         <div className="lib-types" style={{ width: 300 }}>
           {data.inquiries.length === 0 && <div className="faint" style={{ fontSize: 12, padding: 8, lineHeight: 1.7 }}>一条询价对应一个专业包（如「1# 楼桩基」）。发给几家供应商，记下各家回价，自动比价、定标，可以导出比价表。</div>}
@@ -97,13 +100,13 @@ export default function Inquiries({ focusId }: { focusId?: string }) {
             )
           })}
         </div>
-        <div className="lib-list">{cur ? <InquiryDetail key={cur.id} x={cur} onDeleted={() => setSel(null)} /> : data.inquiries.length ? <Empty title="没有符合筛选条件的询价" /> : <Empty title="还没有询价"><button className="btn primary" onClick={add}>+ 新建询价</button></Empty>}</div>
+        <div className="lib-list">{cur ? <InquiryDetail key={cur.id} x={cur} onDeleted={() => setSel(null)} onExport={() => setExp({ projectId: cur.projectId || '', ids: [cur.id] })} /> : data.inquiries.length ? <Empty title="没有符合筛选条件的询价" /> : <Empty title="还没有询价"><button className="btn primary" onClick={add}>+ 新建询价</button></Empty>}</div>
       </div>
     </>
   )
 }
 
-function InquiryDetail({ x, onDeleted }: { x: any; onDeleted: () => void }) {
+function InquiryDetail({ x, onDeleted, onExport }: { x: any; onDeleted: () => void; onExport: () => void }) {
   const sup = useSup()
   const { data, saveItem, deleteItem, go, toast } = useApp()
   const [sending, setSending] = useState(false)
@@ -179,14 +182,6 @@ function InquiryDetail({ x, onDeleted }: { x: any; onDeleted: () => void }) {
   // 推荐供应商：专业标签包含询价专业的
   const recommend = data.companies.filter((c) => c.unitType === '供应商' && x.discipline && (c.specialties || []).includes(x.discipline) && !sends.some((s) => s.companyId === c.id))
 
-  const exportXlsx = async () => {
-    try {
-      await api.call('inquiry:export', x.id)
-    } catch (e) {
-      toast(errMsg(e))
-    }
-  }
-
   return (
     <div style={{ maxWidth: 1000 }}>
       <div className="row" style={{ marginBottom: 10 }}>
@@ -196,7 +191,7 @@ function InquiryDetail({ x, onDeleted }: { x: any; onDeleted: () => void }) {
             <option key={s}>{s}</option>
           ))}
         </select>
-        <button className="btn" onClick={exportXlsx} disabled={!sends.length}>导出比价表</button>
+        <button className="btn" onClick={onExport} title="导出这条询价的比价表，可选工作表和字段">导出比价表</button>
         <button className="btn danger" onClick={async () => confirm(`删除询价「${x.name}」？`) && (await deleteItem('inquiries', x.id), onDeleted())}>删除</button>
       </div>
 
@@ -736,6 +731,162 @@ function QuoteDialog({
           }}
         />
       </div>
+    </Modal>
+  )
+}
+
+// ---------- 导出：选项目、询价、工作表和回价字段 ----------
+type ExportOpts = { sheets: { key: string; label: string; hint: string; def: boolean }[]; fields: { key: string; label: string; def: boolean }[] }
+const EXPORT_PREF = 'inqExport.v1'
+const loadPref = (): { sheets?: string[]; fields?: string[] } => {
+  try {
+    return JSON.parse(localStorage.getItem(EXPORT_PREF) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function ExportDialog({ init, onClose }: { init: { projectId: string; ids: string[] | null }; onClose: () => void }) {
+  const { data, toast } = useApp()
+  const [opts, setOpts] = useState<ExportOpts | null>(null)
+  const [pid, setPid] = useState(init.projectId)
+  const inProject = (p: string) => data.inquiries.filter((x) => (p ? x.projectId === p : !x.projectId))
+  // 默认选中：指定的那几条；否则该项目里没取消的全部
+  const [ids, setIds] = useState<Set<string>>(() => new Set(init.ids || inProject(init.projectId).filter((x) => x.status !== '取消').map((x) => x.id)))
+  const [sheets, setSheets] = useState<Set<string>>(new Set())
+  const [fields, setFields] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    api.call('inquiry:exportOptions').then((o: ExportOpts) => {
+      setOpts(o)
+      const pref = loadPref()
+      const keep = (saved: string[] | undefined, all: { key: string; def: boolean }[]) => new Set(saved?.length ? saved.filter((k) => all.some((a) => a.key === k)) : all.filter((a) => a.def).map((a) => a.key))
+      setSheets(keep(pref.sheets, o.sheets))
+      setFields(keep(pref.fields, o.fields))
+    })
+  }, [])
+
+  const projOpts = data.projects.filter((p) => data.inquiries.some((x) => x.projectId === p.id))
+  const hasLoose = data.inquiries.some((x) => !x.projectId)
+  const list = inProject(pid)
+  const toggle = (set: Set<string>, setter: (s: Set<string>) => void, k: string) => {
+    const n = new Set(set)
+    n.has(k) ? n.delete(k) : n.add(k)
+    setter(n)
+  }
+  const pickProject = (p: string) => {
+    setPid(p)
+    setIds(new Set(inProject(p).filter((x) => x.status !== '取消').map((x) => x.id)))
+  }
+  const needFields = sheets.has('compare') || sheets.has('quotes')
+  const chosen = list.filter((x) => ids.has(x.id))
+
+  const run = async () => {
+    if (!opts) return
+    // 按界面里的顺序导出
+    const order = [...chosen].sort((a, b) => Number(!!b.starred) - Number(!!a.starred) || String(a.startDate || a.createdAt || '').localeCompare(String(b.startDate || b.createdAt || '')))
+    const sheetList = opts.sheets.filter((s) => sheets.has(s.key)).map((s) => s.key)
+    const fieldList = opts.fields.filter((f) => fields.has(f.key)).map((f) => f.key)
+    try {
+      localStorage.setItem(EXPORT_PREF, JSON.stringify({ sheets: sheetList, fields: fieldList }))
+    } catch {}
+    setBusy(true)
+    try {
+      const r = await api.call('inquiry:export', { inquiryIds: order.map((x) => x.id), sheets: sheetList, fields: fieldList })
+      if (r) onClose()
+    } catch (e) {
+      toast(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="导出 Excel"
+      width={640}
+      onClose={onClose}
+      footer={
+        <>
+          <span className="faint" style={{ fontSize: 12, marginRight: 'auto' }}>
+            {chosen.length} 条询价 · {sheets.size} 张工作表{needFields ? ` · ${fields.size} 个回价字段` : ''}
+          </span>
+          <button className="btn" onClick={onClose}>取消</button>
+          <button className="btn primary" disabled={!chosen.length || !sheets.size || (needFields && !fields.size) || busy} onClick={run}>
+            {busy ? '正在导出…' : '导出'}
+          </button>
+        </>
+      }
+    >
+      {!opts ? (
+        <div className="faint">正在加载…</div>
+      ) : (
+        <div className="exp-dlg">
+          <div className="exp-sec">
+            <div className="exp-head">
+              项目
+              <select className="input" style={{ width: 'auto', marginLeft: 8 }} value={pid} onChange={(e) => pickProject(e.target.value)}>
+                {projOpts.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+                {hasLoose && <option value="">未关联项目</option>}
+              </select>
+            </div>
+            <div className="exp-head">
+              询价 <span className="faint">{chosen.length}/{list.length}</span>
+              <span className="spacer" />
+              <button className="btn small" onClick={() => setIds(new Set(list.map((x) => x.id)))}>全选</button>
+              <button className="btn small" onClick={() => setIds(new Set())}>全不选</button>
+            </div>
+            <div className="exp-list">
+              {list.length === 0 && <div className="faint">这个项目还没有询价</div>}
+              {list.map((x) => (
+                <label key={x.id} className="exp-check">
+                  <input type="checkbox" checked={ids.has(x.id)} onChange={() => toggle(ids, setIds, x.id)} />
+                  <span className="exp-name">{x.starred ? '★ ' : ''}{x.name}</span>
+                  <span className={'tag ' + statusCls(x.status)}>{x.status}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="exp-sec">
+            <div className="exp-head">工作表</div>
+            <div className="exp-grid">
+              {opts.sheets.map((s) => (
+                <label key={s.key} className="exp-check" title={s.hint}>
+                  <input type="checkbox" checked={sheets.has(s.key)} onChange={() => toggle(sheets, setSheets, s.key)} />
+                  <span>
+                    {s.label}
+                    <span className="faint exp-hint">{s.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {needFields && (
+            <div className="exp-sec">
+              <div className="exp-head">
+                回价字段 <span className="faint">（用于「比价明细」「全部回价」；单位、排名总会导出）</span>
+                <span className="spacer" />
+                <button className="btn small" onClick={() => setFields(new Set(opts.fields.filter((f) => f.def).map((f) => f.key)))}>恢复默认</button>
+                <button className="btn small" onClick={() => setFields(new Set(opts.fields.map((f) => f.key)))}>全选</button>
+              </div>
+              <div className="exp-fields">
+                {opts.fields.map((f) => (
+                  <label key={f.key} className={'exp-chip' + (fields.has(f.key) ? ' on' : '')}>
+                    <input type="checkbox" checked={fields.has(f.key)} onChange={() => toggle(fields, setFields, f.key)} />
+                    {f.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="faint" style={{ fontSize: 12 }}>选择会记住，下次导出默认用这次的设置。</div>
+        </div>
+      )}
     </Modal>
   )
 }

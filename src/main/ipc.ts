@@ -14,6 +14,7 @@ import { afterProjectRename, assertNotRoot, fileIndex, folderId, listStars, norm
 import { aiLog, aiStatus, restartMcp, undoAiAction } from './mcp'
 import { findRefs, importMedia, purgeMedia, refPath, refStatus as memoRefStatus, renameProjectRefs, saveMedia, type RefTarget } from './memo'
 import { deleteSection, getProfile, moveSection, profileMarkdown, revertChange, saveSection } from './profile'
+import { buildInquiryBook, exportOptions, type ExportReq } from './inqExport'
 
 // 生成一个 16x16 的小图标，用于把文件从导图拖到微信、资源管理器
 function dragIcon() {
@@ -205,7 +206,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return { created, name: t.name, projects: store.projects }
   })
 
-  // ---------- 询价：导出比价表 ----------
+  // ---------- 询价 ----------
   // 询价文件 / 回价文件「上传」：复制进项目文件夹（见 procure.ts）
   h('inquiry:trashFiles', (paths: string[]) => trashInquiryFiles(store, paths))
   h('company:storeFiles', (name: string, kind: 'docs' | 'experience', paths: string[]) => storeCompanyFiles(store, name, kind, paths))
@@ -218,71 +219,19 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     storeInquiryFiles(store, inquiry, kind, sub, paths)
   )
 
-  h('inquiry:export', async (id: string) => {
-    const x = store.inquiries.find((i) => i.id === id)
-    if (!x) throw new Error('找不到这条询价')
-    const co = (cid: string) => store.companies.find((c) => c.id === cid)?.name || ''
-    const usd = (q: any) => (q.currency === 'USD' ? Number(q.amount) : q.rate ? Number(q.amount) * Number(q.rate) : '')
-    const r = await dialog.showSaveDialog(getWin()!, { title: '导出比价表', defaultPath: `比价表 ${x.name} ${new Date().toISOString().slice(0, 10)}.xlsx`.replace(/[\\/:*?"<>|]/g, '_'), filters: [{ name: 'Excel', extensions: ['xlsx'] }] })
+  // 导出：一条询价的比价表，或同一项目几条询价的汇总表（工作表、回价字段可选，见 inqExport.ts）
+  h('inquiry:exportOptions', () => exportOptions())
+  h('inquiry:export', async (req: ExportReq | string) => {
+    const r0 = typeof req === 'string' ? { inquiryIds: [req] } : req
+    const { buffer, fileName } = buildInquiryBook(store, r0)
+    const r = await dialog.showSaveDialog(getWin()!, { title: r0.inquiryIds.length > 1 ? '导出询价汇总' : '导出比价表', defaultPath: fileName, filters: [{ name: 'Excel', extensions: ['xlsx'] }] })
     if (r.canceled || !r.filePath) return null
-    const latest = new Map<string, any>()
-    for (const q of [...(x.quotes || [])].sort((a, b) => (Number(a.round) || 0) - (Number(b.round) || 0))) latest.set(q.companyId, q)
-    const cmp = [...latest.values()]
-      .map((q) => ({
-        单位: co(q.companyId),
-        轮次: q.round || 1,
-        报价金额: Number(q.amount),
-        币种: q.currency,
-        汇率_USD: q.rate ?? '',
-        折合USD: usd(q),
-        是否含税: q.tax || '',
-        税率: q.taxRate ? q.taxRate + '%' : '',
-        含税总价: q.amountWithTax ?? '',
-        比控制价: x.budget ? `${(((Number(q.amount) - x.budget) / x.budget) * 100).toFixed(1)}%` : '',
-        报价编号: q.quoteNo || '',
-        报价范围: q.scopeNote || '',
-        核实状态: q.verify || '',
-        疑点: q.issues || '',
-        '工期/交货期（天）': q.leadDays || '',
-        付款条件: q.payment || '',
-        报价有效期至: q.validTo || '',
-        技术偏差: q.deviation || '',
-        收到日期: q.date || '',
-        定标: x.awardedCompanyId === q.companyId ? '是' : ''
-      }))
-      .sort((a, b) => (Number(a.折合USD) || a.报价金额) - (Number(b.折合USD) || b.报价金额))
-    const sendRows = (x.sends || []).map((s: any) => ({ 单位: co(s.companyId), 发送日期: s.date || '', 发送渠道: s.channel || '', 回价截止: s.deadline || '', 状态: s.status || '', 回价轮数: (x.quotes || []).filter((q: any) => q.companyId === s.companyId).length }))
-    const allQuotes = (x.quotes || []).map((q: any) => ({ 单位: co(q.companyId), 轮次: q.round || 1, 收到日期: q.date || '', 报价金额: Number(q.amount), 币种: q.currency, 是否含税: q.tax || '', 备注: q.note || '' }))
-    const info = [
-      ['询价（专业包）', x.name],
-      ['项目', store.projects.find((p) => p.id === x.projectId)?.name || ''],
-      ['询价专业', x.discipline || ''],
-      ['状态', x.status || ''],
-      ['工作范围', x.scope || ''],
-      ['交货地点', x.location || ''],
-      ['启动时间', x.startDate || ''],
-      ['回价截止', x.deadline || ''],
-      ['采购负责人', x.buyer || ''],
-      ['控制价（不含税）', x.budget ? `${x.budget} ${x.currency || ''}` : ''],
-      ['控制价说明', x.budgetNote || ''],
-      ['定标单位', co(x.awardedCompanyId) || ''],
-      ['比选结论', x.conclusion || '']
-    ]
-    const wb = XLSX.utils.book_new()
-    const ws1 = XLSX.utils.json_to_sheet(cmp)
-    ws1['!cols'] = [30, 6, 14, 8, 10, 14, 8, 14, 30, 12, 30, 12, 6].map((w) => ({ wch: w }))
-    XLSX.utils.book_append_sheet(wb, ws1, '比价')
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sendRows), '发包记录')
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(allQuotes), '全部回价')
-    const ws4 = XLSX.utils.aoa_to_sheet(info)
-    ws4['!cols'] = [{ wch: 14 }, { wch: 60 }]
-    XLSX.utils.book_append_sheet(wb, ws4, '基本信息')
     try {
-      XLSX.writeFile(wb, r.filePath)
+      fs.writeFileSync(r.filePath, buffer)
     } catch (e: any) {
-      throw new Error(e.code === 'EBUSY' ? '这个文件正被 Excel 打开着，请先关掉再导出' : '导出失败：' + e.message)
+      throw new Error(e.code === 'EBUSY' || e.code === 'EPERM' ? '这个文件正被 Excel 打开着，请先关掉再导出' : '导出失败：' + e.message)
     }
-    const m = await dialog.showMessageBox(getWin()!, { type: 'info', message: '已导出比价表', detail: r.filePath, buttons: ['打开', '在资源管理器中显示', '关闭'], cancelId: 2 })
+    const m = await dialog.showMessageBox(getWin()!, { type: 'info', message: '已导出', detail: r.filePath, buttons: ['打开', '在资源管理器中显示', '关闭'], cancelId: 2 })
     if (m.response === 0) shell.openPath(r.filePath)
     if (m.response === 1) shell.showItemInFolder(r.filePath)
     return r.filePath

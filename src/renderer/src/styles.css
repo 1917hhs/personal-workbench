@@ -810,3 +810,22 @@ tr.drop-row.over td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .todo-file .tf-act { border: 0; border-left: 1px solid var(--line); background: none; padding: 2px 5px; color: var(--text-3); cursor: pointer; font-size: 11px; }
 .todo-file .tf-act:hover { background: var(--hover); color: var(--text); }
 .todo-file.missing .tf-main { color: var(--text-3); text-decoration: line-through; }
+
+/* 询价导出对话框 */
+.exp-dlg { display: flex; flex-direction: column; gap: 14px; }
+.exp-sec { display: flex; flex-direction: column; gap: 6px; }
+.exp-head { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; }
+.exp-head .faint { font-weight: 400; font-size: 12px; }
+.exp-list { max-height: 200px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
+.exp-check { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.exp-check:hover { background: var(--line); }
+.exp-check input { flex: none; margin: 0; }
+.exp-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.exp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; }
+.exp-grid .exp-check { align-items: flex-start; }
+.exp-grid .exp-check input { margin-top: 3px; }
+.exp-hint { display: block; font-size: 11px; line-height: 1.4; }
+.exp-fields { display: flex; flex-wrap: wrap; gap: 6px; }
+.exp-chip { display: inline-flex; align-items: center; padding: 3px 10px; border: 1px solid var(--line-2, var(--line)); border-radius: 999px; font-size: 12px; cursor: pointer; color: var(--text-2, inherit); user-select: none; }
+.exp-chip input { display: none; }
+.exp-chip.on { border-color: var(--accent, #4f5bd5); background: var(--accent-soft, #eef0fc); color: var(--accent, #4f5bd5); }
