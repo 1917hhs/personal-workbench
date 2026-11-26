@@ -228,6 +228,11 @@ export default function App() {
   const today = ymd()
   const todoCount = todos.filter((t) => !t.done && t.due && t.due <= today).length
   const starred = projects.filter((p) => p.starred)
+  const stars = ctx.data.stars || []
+  const unstar = async (s: { projectId: string; rel: string }) => {
+    await api.call('project:meta', s.projectId, s.rel, { starred: null })
+    setData({ stars: await api.call('stars:list') })
+  }
 
   const navBtn = (page: Nav['page'], label: string, count?: number) => (
     <button className={'nav side-nav' + (nav.page === page || (page === 'projects' && nav.page === 'project') ? ' on' : '')} onClick={() => go({ page })}>
@@ -273,6 +278,16 @@ export default function App() {
               <span className="stage-dot" style={{ background: stageOf(settings, p.stage).color }} />
               {p.name}
             </button>
+          ))}
+          {stars.length > 0 && <div className="side-sub">星标文件</div>}
+          {stars.map((s) => (
+            <div key={s.projectId + s.rel} className={'side-proj side-star' + (s.exists ? '' : ' missing')} title={s.projectName + ' / ' + s.rel + (s.exists ? '' : '\n（找不到了：可能被删除或在软件外改了名）')}>
+              <button className="side-star-main" onClick={() => go({ page: 'project', projectId: s.projectId, select: s.rel })}>
+                <span className="side-star-ico">{s.dir ? '📁' : '📄'}</span>
+                <span className="side-star-name">{s.name}</span>
+              </button>
+              <button className="side-star-x" title="取消星标" onClick={() => unstar(s)}>×</button>
+            </div>
           ))}
           <div style={{ marginTop: 'auto' }} />
           <FocusWidget />

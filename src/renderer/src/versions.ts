@@ -94,21 +94,43 @@ export function injectRefs(tree: TNode, refs: any[]): TNode {
     byParent.get(parent)!.push(r)
   }
   const copy = (n: TNode): TNode => {
-    if (!n.dir) return n
-    const extra = (byParent.get(n.rel) || []).map(
-      (r): TNode => ({
+    if (!n.dir || n.virtual) return n
+    const extra = (byParent.get(n.rel) || []).map((r): TNode => {
+      const rel = (n.rel ? n.rel + '/' : '') + '~ref~' + r.id
+      return {
         name: r.name,
-        rel: (n.rel ? n.rel + '/' : '') + '~ref~' + r.id,
-        dir: false,
+        rel,
+        dir: !!r.dir && r.exists,
         virtual: 'ref',
         refId: r.id,
         refPath: r.path,
         refExists: r.exists,
         mtime: r.mtime || 0,
-        size: r.size
-      })
-    )
+        size: r.size,
+        fileCount: r.fileCount,
+        children: r.dir && r.exists ? (r.tree || []).map((c: any) => refChild(c, rel, r.path)) : undefined
+      }
+    })
     return { ...n, children: [...(n.children || []).map(copy), ...extra] }
   }
   return copy(tree)
+}
+
+/** 引用文件夹里面的子文件夹和文件：也是引用节点（指向原位置），但不能单独移除 */
+function refChild(c: any, parentRel: string, parentAbs: string): TNode {
+  const rel = parentRel + '/' + c.name
+  const abs = parentAbs.replace(/[\\/]+$/, '') + '\\' + c.name
+  return {
+    name: c.name,
+    rel,
+    dir: c.dir,
+    virtual: 'ref',
+    refPath: abs,
+    refExists: true,
+    refSub: true,
+    mtime: c.mtime || 0,
+    size: c.size,
+    fileCount: c.fileCount,
+    children: c.dir ? (c.children || []).map((x: any) => refChild(x, rel, abs)) : undefined
+  }
 }

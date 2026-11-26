@@ -188,6 +188,8 @@ export interface AppData {
   companies: any[]
   inquiries: any[]
   flows: any[]
+  /** 项目里加了星标的文件 / 文件夹 */
+  stars?: { projectId: string; projectName: string; rel: string; name: string; dir: boolean; exists: boolean }[]
   libraryDir: string
   root: string
   backupDir: string
@@ -241,7 +243,24 @@ export function joinPath(root: string, rel: string) {
 export const normPath = (p: string) => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
 
 /** 「复制为引用」的内容：项目里或资料库里都可以复制，再到项目文件夹上「粘贴引用」 */
-export const clip = { ref: null as string | null }
+export const clip = { ref: null as string | null, dir: false }
+/** 待办等处关联的文件 / 文件夹：只记完整路径 */
+export type FileLink = { path: string; name: string; dir?: boolean; libId?: string }
+
+/** 一个完整路径在软件里的位置：项目导图里的节点，或资料库里的条目；都不是返回 null */
+export function navOfPath(data: AppData, abs: string, libId?: string): Nav | null {
+  if (libId && data.library.some((x) => x.id === libId)) return { page: 'library', libraryId: libId }
+  const n = normPath(abs)
+  let best: any = null
+  for (const p of data.projects) {
+    if (!p.rootPath) continue
+    const r = normPath(p.rootPath)
+    if ((n === r || n.startsWith(r + '\\')) && (!best || r.length > normPath(best.rootPath).length)) best = p
+  }
+  if (!best) return null
+  const rel = abs.replace(/\//g, '\\').replace(/\\+$/, '').slice(normPath(best.rootPath).length + 1).replace(/\\/g, '/')
+  return { page: 'project', projectId: best.id, select: rel || undefined }
+}
 
 /** 关窗口前要先存掉的东西（编辑器里还没到时间自动保存的内容）。关窗口时主进程会等它们都存完 */
 export const flushers = new Set<() => Promise<any> | void>()

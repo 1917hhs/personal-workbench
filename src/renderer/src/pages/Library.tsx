@@ -312,6 +312,7 @@ function LibraryPanel({ item, save, remove, projects, types }: any) {
             className="btn small"
             onClick={() => {
               clip.ref = abs
+              clip.dir = false
               toast('已复制。到项目导图的文件夹上右键「粘贴引用」')
             }}
           >

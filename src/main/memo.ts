@@ -123,6 +123,28 @@ export function findRefs(store: Store, t: RefTarget) {
     const f = flowRefs(fl).filter((r) => hits(r, t))
     if (f.length) out.push({ where: '流程', id: fl.id, title: '流程「' + (fl.name || '未命名') + '」', files: [...new Set(f.map((r) => r.name))] })
   }
+  // 待办里关联的文件 / 文件夹（记的是完整路径）
+  let abs = ''
+  try {
+    if (t.kind === 'lib') {
+      const it = store.library.find((x) => x.id === t.id)
+      if (it) abs = libAbs(store, it)
+    } else {
+      const p = store.projects.find((x) => x.id === t.pid)
+      if (p?.rootPath) abs = path.join(p.rootPath, t.rel)
+    }
+  } catch {}
+  if (abs) {
+    const a = path.resolve(abs).toLowerCase()
+    for (const td of store.todos) {
+      if (td.done) continue
+      const f = (td.files || []).filter((x: any) => {
+        const n = path.resolve(String(x.path || '')).toLowerCase()
+        return n === a || n.startsWith(a + path.sep)
+      })
+      if (f.length) out.push({ where: '待办', id: td.id, title: '待办「' + td.title + '」', files: [...new Set<string>(f.map((x: any) => x.name))] })
+    }
+  }
   return out
 }
 

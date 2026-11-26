@@ -10,7 +10,7 @@ import { ASR_MODELS, asrStatus, cancelDownload, defaultAsrRoot, downloadModel, i
 import { applyLibraryScan, importToLibrary, libAbs, libraryTypeDir, moveLibraryDir, moveToTypeDir, renameLibraryType, scanLibrary } from './library'
 import { listHistory, listPages, purgePage, readVersion, savePage } from './kb'
 import { exportPack, importPack, packInfo } from './pack'
-import { afterProjectRename, assertNotRoot, fileIndex, folderId, norm, projectRoot, relinkProject, retargetAbs, scanProject, searchAll, upsert } from './shared'
+import { afterProjectRename, assertNotRoot, fileIndex, folderId, listStars, norm, projectRoot, relinkProject, retargetAbs, scanProject, searchAll, setOnDataChanged, upsert } from './shared'
 import { aiLog, aiStatus, restartMcp, undoAiAction } from './mcp'
 import { findRefs, importMedia, purgeMedia, refPath, refStatus as memoRefStatus, renameProjectRefs, saveMedia, type RefTarget } from './memo'
 import { deleteSection, getProfile, moveSection, profileMarkdown, revertChange, saveSection } from './profile'
@@ -24,6 +24,7 @@ function dragIcon() {
 
 export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   const h = (ch: string, fn: (...a: any[]) => any) => ipcMain.handle(ch, (_e, ...a) => fn(...a))
+  setOnDataChanged(() => getWin()?.webContents.send('data:changed'))
   // 选文件 / 保存 / 提示框关掉后，同样把焦点还给窗口，免得输入框打不了字
   for (const k of ['showOpenDialog', 'showSaveDialog', 'showMessageBox'] as const) {
     const orig = (dialog as any)[k].bind(dialog)
@@ -57,6 +58,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     companies: store.companies,
     inquiries: store.inquiries,
     flows: store.flows,
+    stars: listStars(store),
     version: app.getVersion()
   })
 
@@ -450,6 +452,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return meta
   })
   // 一次改多个节点（如收起 / 展开所有子文件夹），只写一次文件
+  h('stars:list', () => listStars(store))
   h('project:metaMany', (id: string, list: { rel: string; patch: any }[]) => {
     const meta = store.meta(id)
     for (const x of list || []) patchNode(meta, x.rel, x.patch)
@@ -567,6 +570,8 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   h('fs:copyPath', (id: string, rel: string) => clipboard.writeText(abs(id, rel)))
   h('shell:openPath', (p: string) => shell.openPath(p))
   h('shell:reveal', (p: string) => shell.showItemInFolder(p))
+  // 一组完整路径各自还在不在（待办里关联的文件，找不到的标出来）
+  h('fs:existsMany', (paths: string[]) => (paths || []).map((p) => !!p && fs.existsSync(p)))
   h('clipboard:text', (t: string) => clipboard.writeText(t))
 
   // Windows 上 confirm / alert 弹窗关掉后，网页里的输入框会打不了字（要切到别的软件再切回来才好）：

@@ -5,12 +5,12 @@ import { Modal, Tabs } from '../ui'
 export type RefAttrs = Record<string, string>
 
 /** 选择要引用的文件：资料库里的文件，或某个项目文件夹里的文件。只记住位置，不复制文件 */
-export default function RefPicker({ onClose, onPick }: { onClose: () => void; onPick: (refs: RefAttrs[]) => void }) {
+export default function RefPicker({ onClose, onPick, allowDirs = false, title = '引用文件', okLabel = '插入' }: { onClose: () => void; onPick: (refs: RefAttrs[]) => void; allowDirs?: boolean; title?: string; okLabel?: string }) {
   const { data } = useApp()
   const [tab, setTab] = useState<'lib' | 'proj'>(() => (localStorage.getItem('refTab') as any) || 'lib')
   const [q, setQ] = useState('')
   const [pid, setPid] = useState<string>(() => localStorage.getItem('refPid') || data.projects.find((p) => p.rootPath)?.id || '')
-  const [files, setFiles] = useState<{ rel: string; name: string; dir: string }[] | null>(null)
+  const [files, setFiles] = useState<{ rel: string; name: string; dir: string; isDir: boolean }[] | null>(null)
   const [sel, setSel] = useState<Map<string, RefAttrs>>(new Map())
   const projects = data.projects.filter((p) => p.rootPath)
 
@@ -20,7 +20,12 @@ export default function RefPicker({ onClose, onPick }: { onClose: () => void; on
     api
       .call('project:tree', pid, false)
       .then((r: { flat?: { rel: string; name: string; dir: boolean }[] }) =>
-        setFiles((r.flat || []).filter((f) => !f.dir).map((f) => ({ rel: f.rel, name: f.name, dir: f.rel.includes('/') ? f.rel.slice(0, f.rel.lastIndexOf('/')) : '' })))
+        setFiles(
+          (r.flat || [])
+            .filter((f) => allowDirs || !f.dir)
+            .map((f) => ({ rel: f.rel, name: f.name, isDir: f.dir, dir: f.rel.includes('/') ? f.rel.slice(0, f.rel.lastIndexOf('/')) : '' }))
+            .sort((a, b) => Number(b.isDir) - Number(a.isDir))
+        )
       )
       .catch(() => setFiles([]))
   }, [tab, pid])
@@ -42,7 +47,7 @@ export default function RefPicker({ onClose, onPick }: { onClose: () => void; on
 
   return (
     <Modal
-      title="引用文件"
+      title={title}
       onClose={onClose}
       width={720}
       footer={
@@ -50,7 +55,7 @@ export default function RefPicker({ onClose, onPick }: { onClose: () => void; on
           <span className="faint" style={{ marginRight: 'auto', fontSize: 12 }}>只记住文件位置，不复制。文件被删除时会提示这里引用了它。</span>
           <button className="btn" onClick={onClose}>取消</button>
           <button className="btn primary" disabled={!sel.size} onClick={() => onPick([...sel.values()])}>
-            插入{sel.size ? ` ${sel.size} 个` : ''}
+            {okLabel}{sel.size ? ` ${sel.size} 个` : ''}
           </button>
         </>
       }
@@ -72,7 +77,7 @@ export default function RefPicker({ onClose, onPick }: { onClose: () => void; on
             ))}
           </select>
         )}
-        <input autoFocus className="input" style={{ flex: 1 }} placeholder={tab === 'lib' ? '搜索资料名称、编号、标签' : '搜索文件名或文件夹'} value={q} onChange={(e) => setQ(e.target.value)} />
+        <input autoFocus className="input" style={{ flex: 1 }} placeholder={tab === 'lib' ? '搜索资料名称、编号、标签' : allowDirs ? '搜索文件夹或文件名' : '搜索文件名或文件夹'} value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <div className="ref-list">
         {tab === 'lib' ? (
@@ -95,14 +100,14 @@ export default function RefPicker({ onClose, onPick }: { onClose: () => void; on
         ) : files === null ? (
           <div className="faint" style={{ padding: 12 }}>正在读取项目文件…</div>
         ) : projList.length === 0 ? (
-          <div className="faint" style={{ padding: 12 }}>没有符合的文件</div>
+          <div className="faint" style={{ padding: 12 }}>{allowDirs ? '没有符合的文件或文件夹' : '没有符合的文件'}</div>
         ) : (
           projList.map((f) => {
             const key = 'proj:' + pid + ':' + f.rel
             return (
               <label key={key} className={'ref-row' + (sel.has(key) ? ' on' : '')}>
-                <input type="checkbox" checked={sel.has(key)} onChange={() => toggle(key, { 'data-ref': 'proj', 'data-pid': pid, 'data-rel': f.rel, 'data-name': f.name, 'data-sub': pname + ' · ' })} />
-                <span className="grow">📁 {f.name}</span>
+                <input type="checkbox" checked={sel.has(key)} onChange={() => toggle(key, { 'data-ref': 'proj', 'data-pid': pid, 'data-rel': f.rel, 'data-name': f.name, 'data-sub': pname + ' · ', ...(f.isDir ? { 'data-dir': '1' } : {}) })} />
+                <span className="grow">{allowDirs ? (f.isDir ? '📁 ' : '📄 ') : '📁 '}{f.name}</span>
                 <span className="faint" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.dir || '（根目录）'}</span>
               </label>
             )

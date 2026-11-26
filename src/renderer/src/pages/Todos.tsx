@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
-import { addDays, daysBetween, endOfWeek, uid, useApp, ymd } from '../lib'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { addDays, api, clip, daysBetween, endOfWeek, FileLink, joinPath, navOfPath, normPath, uid, useApp, ymd } from '../lib'
 import { ask, Empty } from '../ui'
+import RefPicker, { RefAttrs } from './RefPicker'
 
 export const PRIORITIES = [
   { id: 'high', label: '高', color: '#dc2626' },
@@ -122,9 +123,75 @@ function DoneMeta({ t }: { t: any }) {
   )
 }
 
+/** 待办里关联的文件 / 文件夹：点名字跳到它在软件里的位置（项目导图、资料库），旁边的按钮直接打开 */
+function TodoFiles({ t, editing }: { t: any; editing: boolean }) {
+  const { data, saveTodo, go, toast } = useApp()
+  const files: FileLink[] = t.files || []
+  const [gone, setGone] = useState<boolean[]>([])
+  const key = files.map((f) => f.path).join('|')
+  useEffect(() => {
+    if (!files.length) return
+    api.call('fs:existsMany', files.map((f) => f.path)).then((r: boolean[]) => setGone(r.map((x) => !x))).catch(() => {})
+  }, [key])
+  if (!files.length) return null
+  const openIt = async (f: FileLink) => {
+    const err = await api.call('shell:openPath', f.path)
+    if (err) toast('打不开：' + err)
+  }
+  const jump = (f: FileLink, i: number) => {
+    if (gone[i]) return toast('找不到了：' + f.path + '（可能被删除，或在软件外改了名）')
+    const n = navOfPath(data, f.path, f.libId)
+    if (n) go(n)
+    else openIt(f)
+  }
+  return (
+    <div className="todo-files">
+      {files.map((f, i) => (
+        <span key={f.path + i} className={'todo-file' + (gone[i] ? ' missing' : '')} title={f.path}>
+          <button className="tf-main" onClick={() => jump(f, i)} title={(navOfPath(data, f.path, f.libId) ? '跳到它所在的位置' : '打开') + '\n' + f.path}>
+            <span>{f.dir ? '📁' : '📄'}</span>
+            <span>{f.name}</span>
+          </button>
+          {!gone[i] && (
+            <button className="tf-act" title={f.dir ? '在资源管理器中打开' : '直接打开文件'} onClick={() => openIt(f)}>
+              {f.dir ? '📂' : '↗'}
+            </button>
+          )}
+          {editing && (
+            <button className="tf-act" title="取消关联（文件不动）" onClick={() => saveTodo({ ...t, files: files.filter((_, j) => j !== i) })}>
+              ×
+            </button>
+          )}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 export function TodoRow({ t, showProject = true }: { t: any; showProject?: boolean }) {
-  const { data, saveTodo, deleteTodo, go } = useApp()
+  const { data, saveTodo, deleteTodo, go, toast } = useApp()
   const [open, setOpen] = useState(false)
+  const [picking, setPicking] = useState(false)
+  const addFiles = (more: FileLink[]) => {
+    const cur: FileLink[] = t.files || []
+    const add = more.filter((m) => !cur.some((c) => normPath(c.path) === normPath(m.path)))
+    if (!add.length) return toast('已经关联过了')
+    saveTodo({ ...t, files: [...cur, ...add] })
+  }
+  const fromPicker = (refs: RefAttrs[]) => {
+    const out: FileLink[] = []
+    for (const r of refs) {
+      if (r['data-ref'] === 'lib') {
+        const it = data.library.find((x) => x.id === r['data-id'])
+        if (it) out.push({ path: joinPath(data.libraryDir, it.file), name: it.name || r['data-name'], libId: it.id })
+      } else {
+        const p = data.projects.find((x) => x.id === r['data-pid'])
+        if (p?.rootPath) out.push({ path: joinPath(p.rootPath, r['data-rel']), name: r['data-name'], dir: r['data-dir'] === '1' })
+      }
+    }
+    setPicking(false)
+    if (out.length) addFiles(out)
+  }
   const p = data.projects.find((x) => x.id === t.projectId)
   const prio = PRIORITIES.find((x) => x.id === (t.priority || 'normal'))!
   const toggle = async (done: boolean) => {
@@ -171,6 +238,7 @@ export function TodoRow({ t, showProject = true }: { t: any; showProject?: boole
         <button className={'star' + (t.starred ? ' on' : '')} onClick={() => saveTodo({ ...t, starred: !t.starred })}>★</button>
         <button className="icon-btn" title="删除" onClick={() => deleteTodo(t.id)}>×</button>
       </div>
+      <TodoFiles t={t} editing={open} />
       {open && (
         <div className="todo-detail">
           <textarea
@@ -201,8 +269,37 @@ export function TodoRow({ t, showProject = true }: { t: any; showProject?: boole
               ))}
             </select>
           </div>
+          <div className="row" style={{ marginTop: 6, fontSize: 12, flexWrap: 'wrap' }}>
+            <span className="faint">关联文件</span>
+            <button className="btn small" title="从项目文件夹或资料库里选" onClick={() => setPicking(true)}>🔗 选择文件 / 文件夹</button>
+            <button
+              className="btn small"
+              onClick={async () => {
+                const paths: string[] = await api.call('dialog:pickFiles', '选择要关联的文件')
+                if (paths.length) addFiles(paths.map((p) => ({ path: p, name: p.split(/[\\/]/).pop()! })))
+              }}
+            >
+              电脑上的文件…
+            </button>
+            <button
+              className="btn small"
+              onClick={async () => {
+                const p: string | null = await api.call('dialog:pickFolder', '选择要关联的文件夹')
+                if (p) addFiles([{ path: p, name: p.split(/[\\/]/).pop()!, dir: true }])
+              }}
+            >
+              电脑上的文件夹…
+            </button>
+            {clip.ref && (
+              <button className="btn small" title={clip.ref} onClick={() => addFiles([{ path: clip.ref!, name: clip.ref!.split(/[\\/]/).pop()!, dir: clip.dir }])}>
+                粘贴引用：{clip.ref.split(/[\\/]/).pop()}
+              </button>
+            )}
+            <span className="faint">关联后点名字就能跳到它所在的位置</span>
+          </div>
         </div>
       )}
+      {picking && <RefPicker allowDirs title="关联文件 / 文件夹" okLabel="关联" onClose={() => setPicking(false)} onPick={fromPicker} />}
     </div>
   )
 }

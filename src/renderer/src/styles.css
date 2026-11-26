@@ -768,3 +768,24 @@ tr.drop-row.over td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .memo-audio-tr:disabled { opacity: .7; cursor: progress; }
 .asr-dir { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12.5px; }
 .asr-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+
+/* 侧栏：星标文件 / 文件夹 */
+.side-star { padding: 0; gap: 0; }
+.side-star-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 5px 4px 5px 10px; border: 0; background: none; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.side-star-ico { font-size: 12px; flex: none; }
+.side-star-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.side-star-x { visibility: hidden; flex: none; width: 22px; height: 22px; margin-right: 4px; border: 0; border-radius: 4px; background: none; color: var(--text-3); cursor: pointer; }
+.side-star:hover .side-star-x { visibility: visible; }
+.side-star-x:hover { background: var(--line); color: var(--text); }
+.side-star.missing .side-star-name { color: var(--text-3); text-decoration: line-through; }
+.mnode .star-mark { color: #f59e0b; margin-right: 3px; font-size: 12px; }
+
+/* 待办里关联的文件 */
+.todo-files { display: flex; flex-wrap: wrap; gap: 4px; margin: 3px 0 2px 46px; }
+.todo-file { display: inline-flex; align-items: center; max-width: 320px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); font-size: 12px; overflow: hidden; }
+.todo-file .tf-main { display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 2px 6px; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.todo-file .tf-main span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.todo-file .tf-main:hover { background: var(--hover); color: var(--accent); }
+.todo-file .tf-act { border: 0; border-left: 1px solid var(--line); background: none; padding: 2px 5px; color: var(--text-3); cursor: pointer; font-size: 11px; }
+.todo-file .tf-act:hover { background: var(--hover); color: var(--text); }
+.todo-file.missing .tf-main { color: var(--text-3); text-decoration: line-through; }

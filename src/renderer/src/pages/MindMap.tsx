@@ -23,6 +23,8 @@ export interface TNode {
   refId?: string
   refPath?: string
   refExists?: boolean
+  /** 引用文件夹里面的子项（指向原位置，不能单独移除） */
+  refSub?: boolean
 }
 
 interface Item {
@@ -128,7 +130,7 @@ export default function MindMap(props: {
     const c = meta[n.rel]?.collapsed
     if (c === true) return false
     if (c === false) return true
-    if (n.virtual === 'versions') return false // 版本组默认收起，只显示最新版
+    if (n.virtual) return false // 版本组默认收起，只显示最新版；引用的文件夹默认收起
     return props.expandAll || d <= 1
   }
 
@@ -303,7 +305,9 @@ export default function MindMap(props: {
               ? `最新 v${n.fileCount} · 共 ${n.fileCount} 版${n.finalVersion ? ` · 定稿 v${n.finalVersion}` : ''}`
               : n.virtual === 'ref'
                 ? n.refExists
-                  ? `引用 · ${fmtTime(n.mtime)}`
+                  ? n.dir
+                    ? `引用 · ${n.fileCount || 0} 个文件 · ${fmtTime(n.mtime)}`
+                    : `引用 · ${fmtTime(n.mtime)}`
                   : '引用 · 原文件找不到'
                 : n.dir
                   ? `${n.fileCount || 0} 个文件${n.mtime ? ' · ' + fmtTime(n.mtime) : ''}${n.hiddenCount ? ` · 隐藏 ${n.hiddenCount}` : ''}`
@@ -347,11 +351,12 @@ export default function MindMap(props: {
                 }
               }}
             >
-              {realDir ? <FolderIcon color={m.color} /> : <FileBadge name={n.name} stack={n.virtual === 'versions'} />}
+              {n.dir && n.virtual !== 'versions' ? <FolderIcon color={m.color} /> : <FileBadge name={n.name} stack={n.virtual === 'versions'} />}
               <div className="txt">
                 <div className="nm">
                   {n.version && <span className="ver">v{n.version}</span>}
-                  {n.virtual === 'ref' && <span className="ver">↗</span>}
+                  {n.virtual === 'ref' && !n.refSub && <span className="ver">↗</span>}
+                  {m.starred && <span className="star-mark" title="星标">★</span>}
                   {isRoot ? props.rootName : n.name}
                 </div>
                 <div className="sub">{sub}</div>

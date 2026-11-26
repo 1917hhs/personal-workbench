@@ -29,16 +29,42 @@ export function projectRoot(store: Store, id: string) {
   return p.rootPath as string
 }
 
-/** 引用指向的文件现在还在不在、多大、什么时候改的 */
-export function refStatus(refs: any[]) {
+/**
+ * 引用指向的文件现在还在不在、多大、什么时候改的。
+ * 引用的是文件夹时，把里面的子文件夹和文件也读出来（tree），导图里可以一层层展开
+ */
+export function refStatus(refs: any[], isHidden: (name: string, isDir: boolean) => boolean = () => false) {
   return refs.map((r) => {
     try {
       const st = fs.statSync(r.path)
-      return { ...r, exists: true, dir: st.isDirectory(), size: st.size, mtime: st.mtimeMs }
+      if (!st.isDirectory()) return { ...r, exists: true, dir: false, size: st.size, mtime: st.mtimeMs }
+      const t = scanTree(r.path, isHidden, {}, false, 3000)
+      return { ...r, exists: true, dir: true, size: 0, mtime: t.tree.mtime, fileCount: t.tree.fileCount, tree: t.tree.children, truncated: t.truncated }
     } catch {
       return { ...r, exists: false }
     }
   })
+}
+
+/** 所有项目里加了星标的文件 / 文件夹（侧栏「星标文件」） */
+export function listStars(store: Store) {
+  const out: { projectId: string; projectName: string; rel: string; name: string; dir: boolean; exists: boolean }[] = []
+  for (const p of store.projects) {
+    const m = store.meta(p.id)
+    for (const [rel, n] of Object.entries<any>(m.nodes)) {
+      if (!n?.starred || !rel) continue
+      let dir = false
+      let exists = false
+      if (p.rootPath) {
+        try {
+          dir = fs.statSync(path.join(p.rootPath, rel)).isDirectory()
+          exists = true
+        } catch {}
+      }
+      out.push({ projectId: p.id, projectName: p.name, rel, name: rel.split('/').pop()!, dir, exists })
+    }
+  }
+  return out
 }
 
 export function scanProject(store: Store, id: string, showHidden = false) {
@@ -57,9 +83,10 @@ export function scanProject(store: Store, id: string, showHidden = false) {
     if (p.rootId) store.save('projects')
   }
   const meta = store.meta(id)
-  const r = scanTree(root, compileHide(hidePatterns(store)), meta.nodes, showHidden)
+  const isHidden = compileHide(hidePatterns(store))
+  const r = scanTree(root, isHidden, meta.nodes, showHidden)
   fileIndex.set(id, r.flat)
-  return { exists: true, root, relinked, meta, refs: refStatus(meta.refs), ...r }
+  return { exists: true, root, relinked, meta, refs: refStatus(meta.refs, isHidden), ...r }
 }
 
 export const norm = (p: string) => path.resolve(p).toLowerCase()
@@ -129,6 +156,28 @@ export function retargetAbs(store: Store, fromAbs: string, toAbs: string) {
   }
   store.inquiries = store.inquiries.map(walk)
   if (inqChanged) store.save('inquiries')
+  // 待办里关联的文件 / 文件夹
+  let todoChanged = false
+  for (const t of store.todos) {
+    for (const f of t.files || []) {
+      const nw = fix(f.path)
+      if (nw !== f.path) {
+        f.path = nw
+        f.name = path.basename(nw)
+        todoChanged = true
+      }
+    }
+  }
+  if (todoChanged) {
+    store.save('todos')
+    onDataChanged()
+  }
+}
+
+/** 主进程里改了界面正在显示的数据（如待办里的文件路径）时通知界面重新读取；ipc.ts 里接上 */
+export let onDataChanged = () => {}
+export function setOnDataChanged(f: () => void) {
+  onDataChanged = f
 }
 
 /** 文件夹的身份（Windows 上改名、同盘移动都不变），用来找回被改名的项目文件夹 */

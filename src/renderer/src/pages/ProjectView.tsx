@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, CATS, catOf, clip, errMsg, extOf, fmtSize, fmtTime, joinPath, normPath, stageOf, useApp, refWarn, leadsOf } from '../lib'
+import { api, CATS, catOf, clip, errMsg, extOf, fmtSize, fmtTime, joinPath, normPath, stageOf, uid, useApp, refWarn, leadsOf } from '../lib'
 import { ask, ContextMenu, Empty, MenuItem, Tabs } from '../ui'
 import { groupVersions, injectRefs } from '../versions'
 import MindMap, { FileBadge, TNode } from './MindMap'
@@ -30,7 +30,7 @@ function ancestors(rel: string) {
 }
 
 export default function ProjectView({ id, select, tab: initialTab }: { id: string; select?: string; tab?: 'map' | 'detail' }) {
-  const { data, saveProject, go, toast, setData } = useApp()
+  const { data, saveProject, saveTodo, go, toast, setData } = useApp()
   const [tab, setTab] = useState<'map' | 'detail'>(initialTab || 'map')
   const { settings } = data
   const project = data.projects.find((p) => p.id === id)
@@ -53,6 +53,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
     try {
       const r = await api.call('project:tree', id, showHidden)
       setRes(r)
+      api.call('stars:list').then((stars: any) => setData({ stars })).catch(() => {})
       if (r?.relinked) {
         const d = await api.call('app:init')
         setData({ projects: d.projects, inquiries: d.inquiries })
@@ -89,6 +90,22 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
   const setMeta = async (rel: string, patch: any) => {
     const m = await api.call('project:meta', id, rel, patch)
     setRes((r: any) => ({ ...r, meta: m }))
+  }
+
+  // 星标：侧栏「星标文件」里列出来，点一下就跳回这里
+  const toggleStar = async (n: TNode) => {
+    const on = !meta[n.rel]?.starred
+    await setMeta(n.rel, { starred: on || null })
+    setData({ stars: await api.call('stars:list') })
+    toast(on ? '已加星标，侧栏「星标文件」里点一下就能回到这里' : '已取消星标')
+  }
+
+  // 新建一条待办并关联这个文件 / 文件夹（待办里点一下就跳回来）
+  const todoFor = async (abs: string, name: string, dir: boolean) => {
+    const title = (await ask('新建待办（关联「' + name + '」）', '', '要做什么，例如：核对' + name))?.trim()
+    if (!title) return
+    await saveTodo({ id: uid(), title, projectId: id, priority: 'normal', done: false, due: null, files: [{ path: abs, name, dir }] })
+    toast('已加到待办：' + title)
   }
 
   // 每个文件被本项目引用了几次（显示「+N 引用」）
@@ -233,9 +250,9 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
         { label: '在资源管理器中显示', disabled: !n.refExists, onClick: () => api.call('shell:reveal', n.refPath) },
         { label: '定位到原文件', onClick: () => locateSource(n.refPath!) },
         { label: '复制路径', onClick: () => api.call('clipboard:text', n.refPath).then(() => toast('路径已复制')) },
-        'sep',
-        { label: '移除引用（原文件不动）', danger: true, onClick: () => removeRef(n) }
+        { label: '新建待办（关联它）…', disabled: !n.refExists, onClick: () => todoFor(n.refPath!, n.name, n.dir) }
       )
+      if (!n.refSub) items.push('sep', { label: '移除引用（原文件不动）', danger: true, onClick: () => removeRef(n) })
       return setMenu({ x, y, items })
     }
     if (n.virtual === 'versions') {
@@ -269,6 +286,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
         label: '复制为引用',
         onClick: () => {
           clip.ref = joinPath(res.root, n.rel)
+          clip.dir = n.dir
           toast('已复制。在要挂过去的文件夹上右键「粘贴引用」')
         }
       })
@@ -276,6 +294,12 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
     if (n.dir && clip.ref) {
       const src = clip.ref
       items.push({ label: `粘贴引用：${src.split(/[\\/]/).pop()}`, onClick: () => addRefs(n.rel, [src]) })
+    }
+    if (n.rel) {
+      items.push(
+        { label: meta[n.rel]?.starred ? '取消星标' : '加星标（侧栏快速打开）', onClick: () => toggleStar(n) },
+        { label: '新建待办（关联它）…', onClick: () => todoFor(joinPath(res.root, n.rel), n.name, n.dir) }
+      )
     }
     items.push('sep', { label: meta[n.rel]?.note ? '编辑备注' : '添加备注', onClick: () => editNote(n) }, { swatches, onPick: (c) => setMeta(n.rel, { color: c }) })
     if (!n.dir) items.push(...tagMenu(n))
@@ -470,6 +494,8 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
                   onLocate={locateSource}
                   onRemoveRef={removeRef}
                   onFold={foldAll}
+                  onStar={toggleStar}
+                  onTodo={todoFor}
                   swatches={swatches}
                 />
               )}
@@ -498,6 +524,8 @@ function DetailPanel(props: {
   onLocate: (abs: string) => void
   onRemoveRef: (n: TNode) => void
   onFold: (n: TNode, collapse: boolean) => void
+  onStar: (n: TNode) => void
+  onTodo: (abs: string, name: string, dir: boolean) => void
   swatches: any[]
 }) {
   // 不同类型的节点用不同的面板组件，避免同一组件里条件调用 Hook
@@ -592,6 +620,12 @@ function FilePanel(props: any) {
           <button className="btn small" onClick={() => api.call('fs:reveal', id, n.rel)}>在资源管理器中显示</button>
           <button className="btn small" onClick={() => api.call('fs:copyPath', id, n.rel).then(() => toast('路径已复制'))}>复制路径</button>
           {!isRoot && <button className="btn small" onClick={() => props.onRename(n)}>重命名</button>}
+          {!isRoot && (
+            <button className={'btn small' + (props.meta.starred ? ' primary' : '')} title="加星标后，侧栏「星标文件」里点一下就能回到这里" onClick={() => props.onStar(n)}>
+              {props.meta.starred ? '★ 已星标' : '☆ 星标'}
+            </button>
+          )}
+          {!isRoot && <button className="btn small" title="新建一条待办并关联它，待办里点一下就能跳回来" onClick={() => props.onTodo(props.abs, n.name, n.dir)}>＋ 待办</button>}
           {isRoot && <button className="btn small" onClick={() => props.onRename(n)}>文件夹改名</button>}
           {isRoot && <button className="btn small" onClick={props.onEditProject}>编辑项目信息</button>}
           {n.dir && (n.children || []).some((c) => c.dir && !c.virtual) && (
@@ -676,7 +710,7 @@ function RefPanel(props: any) {
   const [preview, setPreview] = useState<any>(null)
   useEffect(() => {
     setPreview(null)
-    if (!n.refExists) return
+    if (!n.refExists || n.dir) return
     let alive = true
     setPreview({ kind: 'loading' })
     api
@@ -694,18 +728,22 @@ function RefPanel(props: any) {
           <FileBadge name={n.name} />
           <div className="panel-title">{n.name}</div>
         </div>
-        <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>引用：文件本身不在这里，只是在这个位置挂了一个入口，改原文件这里也能看到最新内容。</div>
+        <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
+          {n.refSub
+            ? '引用文件夹里的内容：显示的是原位置的实时内容。'
+            : `引用：${n.dir ? '文件夹' : '文件'}本身不在这里，只是在这个位置挂了一个入口，改原${n.dir ? '文件夹' : '文件'}这里也能看到最新内容。`}
+        </div>
       </div>
       <div className="panel-body">
         <div className="kv">
-          <span className="k">原文件</span>
+          <span className="k">{n.dir ? '原文件夹' : '原文件'}</span>
           <span className="v">{n.refPath}</span>
           <span className="k">状态</span>
           <span className="v" style={{ color: n.refExists ? undefined : 'var(--danger)' }}>{n.refExists ? '正常' : '原文件找不到（被移动、改名或删除）'}</span>
           {n.refExists && (
             <>
-              <span className="k">大小</span>
-              <span className="v">{fmtSize(n.size)}</span>
+              <span className="k">{n.dir ? '文件数' : '大小'}</span>
+              <span className="v">{n.dir ? n.fileCount || 0 : fmtSize(n.size)}</span>
               <span className="k">修改时间</span>
               <span className="v">{fmtTime(n.mtime)}</span>
             </>
@@ -715,9 +753,10 @@ function RefPanel(props: any) {
           <button className="btn small primary" disabled={!n.refExists} onClick={() => api.call('shell:openPath', n.refPath)}>打开</button>
           <button className="btn small" disabled={!n.refExists} onClick={() => api.call('shell:reveal', n.refPath)}>在资源管理器中显示</button>
           <button className="btn small" onClick={() => props.onLocate(n.refPath)}>定位到原文件</button>
-          <button className="btn small danger" onClick={() => props.onRemoveRef(n)}>移除引用</button>
+          <button className="btn small" disabled={!n.refExists} onClick={() => props.onTodo(n.refPath, n.name, n.dir)}>＋ 待办</button>
+          {!n.refSub && <button className="btn small danger" onClick={() => props.onRemoveRef(n)}>移除引用</button>}
         </div>
-        {n.refExists && (
+        {n.refExists && !n.dir && (
           <div>
             <div className="faint" style={{ marginBottom: 4 }}>预览</div>
             <Preview p={preview} ext={extOf(n.name)} />
