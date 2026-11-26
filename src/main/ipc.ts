@@ -59,6 +59,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     companies: store.companies,
     inquiries: store.inquiries,
     flows: store.flows,
+    costs: store.costs,
     stars: listStars(store),
     version: app.getVersion()
   })
@@ -296,7 +297,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return store.focus
   })
 
-  for (const kind of ['companies', 'inquiries', 'flows'] as Kind[]) {
+  for (const kind of ['companies', 'inquiries', 'flows', 'costs'] as Kind[]) {
     h(`${kind}:delete`, (id: string) => {
       ;(store as any)[kind] = (store[kind] as any[]).filter((x) => x.id !== id)
       store.save(kind)
@@ -343,7 +344,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   h('profile:move', (id: string, d: number) => moveSection(store, id, d))
   h('profile:revert', (changeId: string) => revertChange(store, changeId))
 
-  for (const kind of ['contacts', 'focus', 'companies', 'inquiries', 'flows'] as Kind[]) {
+  for (const kind of ['contacts', 'focus', 'companies', 'inquiries', 'flows', 'costs'] as Kind[]) {
     h(`${kind}:save`, (x: any) => {
       // 联系人的 org 字段跟着所属单位名走，搜索和 AI 助手直接用
       if (kind === 'contacts' && x.companyId) x = { ...x, org: store.companies.find((c) => c.id === x.companyId)?.name || x.org || '' }

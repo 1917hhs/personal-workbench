@@ -146,9 +146,9 @@ export function writeJsonAtomic(file: string, data: unknown) {
   }
 }
 
-export type Kind = 'projects' | 'todos' | 'stickies' | 'settings' | 'contacts' | 'library' | 'focus' | 'companies' | 'inquiries' | 'flows'
+export type Kind = 'projects' | 'todos' | 'stickies' | 'settings' | 'contacts' | 'library' | 'focus' | 'companies' | 'inquiries' | 'flows' | 'costs'
 
-const KINDS: Kind[] = ['projects', 'todos', 'stickies', 'settings', 'contacts', 'library', 'focus', 'companies', 'inquiries', 'flows']
+const KINDS: Kind[] = ['projects', 'todos', 'stickies', 'settings', 'contacts', 'library', 'focus', 'companies', 'inquiries', 'flows', 'costs']
 
 /** 数据文件夹里软件认识的全部内容。备份、搬家、导出都只处理这些，别的文件一概不碰 */
 export const DATA_FILES = [...KINDS.map((k) => k + '.json'), 'ai-log.json', 'profile.json']
@@ -202,6 +202,8 @@ export class Store {
   inquiries: any[] = []
   /** 工作流程图（审批流程）：节点、连线、审批人、所需附件 */
   flows: any[] = []
+  /** 履约成本：每个项目一条，记各合同包的责任成本、签订价、收入和汇率 */
+  costs: any[] = []
   settings: any = structuredClone(DEFAULT_SETTINGS)
   /** 启动时读数据遇到的问题（文件损坏等），界面上提示一次 */
   loadProblems: string[] = []
@@ -269,6 +271,7 @@ export class Store {
     this.companies = rd('companies')
     this.inquiries = rd('inquiries')
     this.flows = rd('flows')
+    this.costs = rd('costs')
     this.migrateContacts()
     const s = readDataFile<any>(this.file('settings.json'), {}, this.loadProblems)
     // 已删除功能（云盘同步、审查）留下的设置项

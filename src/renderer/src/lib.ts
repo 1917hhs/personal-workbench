@@ -188,6 +188,7 @@ export interface AppData {
   companies: any[]
   inquiries: any[]
   flows: any[]
+  costs?: any[]
   /** 项目里加了星标的文件 / 文件夹 */
   stars?: { projectId: string; projectName: string; rel: string; name: string; dir: boolean; exists: boolean }[]
   libraryDir: string
@@ -201,7 +202,7 @@ export interface AppData {
 }
 
 export interface Nav {
-  page: 'home' | 'projects' | 'project' | 'todos' | 'contacts' | 'library' | 'kb' | 'map' | 'flows' | 'inquiries' | 'settings'
+  page: 'home' | 'projects' | 'project' | 'todos' | 'contacts' | 'library' | 'kb' | 'map' | 'costs' | 'flows' | 'inquiries' | 'settings'
   inquiryId?: string
   flowId?: string
   companyId?: string
@@ -233,8 +234,8 @@ export interface Ctx {
   saveSettings: (s: any) => Promise<void>
   saveContact: (c: any) => Promise<void>
   /** 保存单位 / 询价 / 流程 */
-  saveItem: (kind: 'companies' | 'inquiries' | 'flows', x: any) => Promise<any>
-  deleteItem: (kind: 'companies' | 'inquiries' | 'flows', id: string) => Promise<void>
+  saveItem: (kind: 'companies' | 'inquiries' | 'flows' | 'costs', x: any) => Promise<any>
+  deleteItem: (kind: 'companies' | 'inquiries' | 'flows' | 'costs', id: string) => Promise<void>
   /** 底部提示；带 action 时显示一个按钮（如「撤销」） */
   toast: (msg: string, action?: { label: string; run: () => void }) => void
 }

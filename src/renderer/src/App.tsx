@@ -10,6 +10,7 @@ import Contacts from './pages/Contacts'
 import Library from './pages/Library'
 import Knowledge from './pages/Knowledge'
 import Flows from './pages/Flows'
+import Costs from './pages/Costs'
 import MapPage from './pages/MapPage'
 import { FocusWidget } from './pages/Focus'
 import Inquiries from './pages/Inquiries'
@@ -24,6 +25,7 @@ const PAGE_NAMES: Record<Nav['page'], string> = {
   library: '资料库',
   kb: '备忘录',
   map: '地图',
+  costs: '履约成本',
   flows: '流程',
   inquiries: '询价',
   settings: '设置'
@@ -40,7 +42,9 @@ function navLabel(n: Nav, d: AppData) {
           ? nm(d.companies, n.companyId) || nm(d.contacts, n.contactId)
           : n.page === 'flows'
             ? nm(d.flows, n.flowId)
-            : ''
+            : n.page === 'costs'
+              ? nm(d.projects, n.projectId)
+              : ''
   return detail ? `${PAGE_NAMES[n.page]} · ${detail}` : PAGE_NAMES[n.page]
 }
 
@@ -271,6 +275,7 @@ export default function App() {
           {navBtn('contacts', '供应商与联系人', ctx.data.contacts.length)}
           {navBtn('inquiries', '询价', ctx.data.inquiries.filter((x) => ['编制中', '询价中', '比价中'].includes(x.status)).length)}
           {navBtn('map', '地图')}
+          {navBtn('costs', '履约成本', ctx.data.costs?.length)}
           {navBtn('flows', '流程', ctx.data.flows?.length)}
           {navBtn('settings', '设置')}
           {starred.length > 0 && <div className="side-sub">星标项目</div>}
@@ -324,6 +329,7 @@ export default function App() {
           {nav.page === 'contacts' && <Contacts key={(nav.contactId || '') + (nav.companyId || '') + (nav.docId || '')} focusId={nav.contactId} companyId={nav.companyId} companyTab={nav.companyTab} docId={nav.docId} />}
           {nav.page === 'library' && <Library key={nav.libraryId || ''} focusId={nav.libraryId} />}
           {nav.page === 'kb' && <Knowledge key={nav.pageId || ''} pageId={nav.pageId} />}
+          {nav.page === 'costs' && <Costs key={nav.projectId || ''} focusId={nav.projectId} />}
           {nav.page === 'flows' && <Flows key={nav.flowId || ''} focusId={nav.flowId} />}
           {nav.page === 'map' && <MapPage key={nav.projectId || ''} focusId={nav.projectId} />}
           {nav.page === 'inquiries' && <Inquiries key={nav.inquiryId || ''} focusId={nav.inquiryId} />}

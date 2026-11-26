@@ -172,6 +172,24 @@ export function retargetAbs(store: Store, fromAbs: string, toAbs: string) {
     store.save('todos')
     onDataChanged()
   }
+  // 履约成本里合同包引用的文件 / 文件夹
+  let costChanged = false
+  for (const c of store.costs) {
+    for (const pk of c.packages || []) {
+      for (const f of pk.files || []) {
+        const nw = fix(f.path)
+        if (nw !== f.path) {
+          f.path = nw
+          f.name = path.basename(nw)
+          costChanged = true
+        }
+      }
+    }
+  }
+  if (costChanged) {
+    store.save('costs')
+    onDataChanged()
+  }
 }
 
 /** 主进程里改了界面正在显示的数据（如待办里的文件路径）时通知界面重新读取；ipc.ts 里接上 */

@@ -66,6 +66,14 @@ const P: Record<string, JSX.Element> = {
       <path d="M15 6.8v14M9 3.2v14" />
     </>
   ),
+  costs: (
+    <>
+      <path d="M3 3v18h18" />
+      <rect x="7" y="11" width="3" height="6" rx="1" />
+      <rect x="12" y="7" width="3" height="10" rx="1" />
+      <path d="M17 13h4M19 11v4" />
+    </>
+  ),
   flows: (
     <>
       <rect x="3" y="3" width="7" height="5" rx="1.5" />
