@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { addDays, api, clip, daysBetween, endOfWeek, FileLink, joinPath, navOfPath, normPath, uid, useApp, ymd } from '../lib'
-import { ask, Empty } from '../ui'
+import { ask, Empty, Tabs } from '../ui'
+import TodoCalendar from './TodoCalendar'
 import RefPicker, { RefAttrs } from './RefPicker'
 
 export const PRIORITIES = [
@@ -31,6 +32,19 @@ export function nextDue(due: string, repeat: string) {
     return ymd(new Date(y, m, Math.min(day, last)))
   }
   return due
+}
+
+/** 勾选 / 取消完成。重复待办完成后自动排下一次（从原定日期往后推，逾期很久的推到今天以后）。清单和日历共用 */
+export async function setTodoDone(saveTodo: (t: any) => Promise<void> | void, t: any, done: boolean) {
+  await saveTodo({ ...t, done, doneAt: done ? new Date().toISOString() : null })
+  if (done && t.repeat && t.due && !t.nextId) {
+    let due = nextDue(t.due, t.repeat)
+    while (due < ymd()) due = nextDue(due, t.repeat)
+    const id = uid()
+    const { nextId: _n, createdAt: _c, updatedAt: _u, ...rest } = t
+    await saveTodo({ ...rest, id, due, done: false, doneAt: null })
+    await saveTodo({ ...t, done: true, doneAt: new Date().toISOString(), nextId: id })
+  }
 }
 
 const prioRank = (t: any) => (t.priority === 'high' ? 0 : t.priority === 'low' ? 2 : 1)
@@ -194,18 +208,8 @@ export function TodoRow({ t, showProject = true }: { t: any; showProject?: boole
   }
   const p = data.projects.find((x) => x.id === t.projectId)
   const prio = PRIORITIES.find((x) => x.id === (t.priority || 'normal'))!
-  const toggle = async (done: boolean) => {
-    await saveTodo({ ...t, done, doneAt: done ? new Date().toISOString() : null })
-    // 重复待办：完成后自动排下一次（从原定日期往后推，逾期很久的推到今天以后）
-    if (done && t.repeat && t.due && !t.nextId) {
-      let due = nextDue(t.due, t.repeat)
-      while (due < ymd()) due = nextDue(due, t.repeat)
-      const id = uid()
-      const { nextId: _n, createdAt: _c, updatedAt: _u, ...rest } = t
-      await saveTodo({ ...rest, id, due, done: false, doneAt: null })
-      await saveTodo({ ...t, done: true, doneAt: new Date().toISOString(), nextId: id })
-    }
-  }
+  const toggle = (done: boolean) => setTodoDone(saveTodo, t, done)
+
   const cyclePrio = () => saveTodo({ ...t, priority: t.priority === 'high' ? 'low' : t.priority === 'low' ? 'normal' : 'high' })
   return (
     <div className={'todo' + (t.done ? ' done' : '')}>
@@ -225,7 +229,7 @@ export function TodoRow({ t, showProject = true }: { t: any; showProject?: boole
           {t.note && <span className="faint" style={{ marginLeft: 6, fontSize: 12 }}>📝</span>}
           {t.repeat && (
             <span className="faint" style={{ marginLeft: 6, fontSize: 12 }} title={'重复：' + REPEATS.find((r) => r.id === t.repeat)?.label}>
-              🔁
+              ↻
             </span>
           )}
         </span>
@@ -348,6 +352,15 @@ export default function Todos() {
   const { data } = useApp()
   const [view, setView] = useState<View>('all')
   const [q, setQ] = useState('')
+  // 日历 / 清单，记住上次用的（默认日历）
+  const [layout, setLayout] = useState<'cal' | 'list'>(() => (localStorage.getItem('todos.layout') === 'list' ? 'list' : 'cal'))
+  const [calPid, setCalPid] = useState('')
+  const pickLayout = (v: 'cal' | 'list') => {
+    setLayout(v)
+    try {
+      localStorage.setItem('todos.layout', v)
+    } catch {}
+  }
   const today = ymd()
   const eow = endOfWeek(today)
 
@@ -405,8 +418,22 @@ export default function Todos() {
     <>
       <div className="topbar">
         <h1>待办</h1>
+        <Tabs value={layout} onChange={pickLayout} options={[{ id: 'cal', label: '日历' }, { id: 'list', label: '清单' }]} />
         <input className="input" style={{ width: 240 }} placeholder="搜索待办和备注…" value={q} onChange={(e) => setQ(e.target.value)} />
+        {layout === 'cal' && (
+          <select className="input" style={{ width: 180 }} value={calPid} onChange={(e) => setCalPid(e.target.value)}>
+            <option value="">全部项目</option>
+            {data.projects
+              .filter((p) => data.todos.some((t) => t.projectId === p.id))
+              .map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+          </select>
+        )}
       </div>
+      {layout === 'cal' ? (
+        <TodoCalendar todos={calPid ? filtered.filter((t) => t.projectId === calPid) : filtered} />
+      ) : (
       <div className="lib-wrap">
         <div className="lib-types">
           {nav('all', '全部', counts.all)}
@@ -442,6 +469,7 @@ export default function Todos() {
           </div>
         </div>
       </div>
+      )}
     </>
   )
 }
