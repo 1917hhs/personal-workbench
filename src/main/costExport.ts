@@ -67,13 +67,17 @@ export function buildCostBook(store: Store, costId: string) {
   const subLine = `导出日期 ${today} · 金额按 ${disp} 显示${perPkg ? ' · 各合同包按自己选的汇率方案换算（见「汇率方案」列和「汇率」表），未单独选的用默认方案：' + label(active) : active ? ` · 汇率方案：${label(active)}（${rateText || '仅美元'}）` : ' · 未设汇率'} · 节超 = 责任成本 − 签订价，正数节约、负数超支`
 
   const cols = [
-    '序号', '合同包', '分包 / 供货单位', '合同编号', '签订日期', '状态', ...(perPkg ? ['汇率方案'] : []),
+    '序号', '品类', '招标方式', '合同包（工程名称）', '招标编号', '中标单位', '单位性质', '状态', ...(perPkg ? ['汇率方案'] : []),
     `责任成本（${disp}）`, `签订价（${disp}）`, '签订价 / 责任成本', `节超（${disp}）`, '节超率',
     ...(hasIncome ? [`对应收入（${disp}）`, `毛利（${disp}）`, '毛利率'] : []),
     '责任成本（原币）', '原币', '签订价（原币）', '原币',
     ...(hasIncome ? ['对应收入（原币）', '原币'] : []),
-    '关联询价', '引用文件'
+    '招文发出', '开标', '定标审批完成', '合同签订', '招采时效（天）', '合同时效（天）', '经办人', '合同编号', '超支原因分析', '关联询价', '引用文件'
   ]
+  const lead = perPkg ? 9 : 8 // 金额前面的文字列数
+  const full = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s)
+  const gap = (a?: string, b?: string) => (full(a) && full(b) ? Math.round((Date.parse(b) - Date.parse(a)) / 86400000) : null)
+  const cats: Record<string, { n: number; b: number; c: number; sb: number; diff: number; i: number; profit: number; pi: number; pd: number[]; cd: number[] }> = {}
   const n = cols.length
   const rows: Cell[][] = [[{ v: `${pname} 履约成本分析`, s: S.title }], [{ v: subLine, s: S.sub }], cols.map((c) => ({ v: c, s: S.head }))]
   const merges: Sheet['merges'] = [
@@ -97,12 +101,16 @@ export function buildCostBook(store: Store, costId: string) {
     if (profit !== null) (tot.pi += i!), (tot.profit += profit)
     const tone = diff === null ? undefined : diff < 0 ? C.red : C.green
     const st = k.status === '已结算' ? C.green : k.status === '已签约' ? C.amber : undefined
+    const pd = gap(k.tenderDate, k.awardDate)
+    const cd = gap(k.awardDate, k.signDate)
     rows.push([
       { v: idx + 1, s: cell({ align: 'center' }) },
+      { v: k.category || '', s: cell({ align: 'center' }) },
+      { v: k.method || '', s: cell({ align: 'center' }) },
       { v: k.name || '未命名合同包', s: cell({ bold: true, wrap: true }) },
+      { v: k.bidNo || '', s: cell() },
       { v: co(k.companyId), s: cell({ wrap: true }) },
-      { v: k.contractNo || '', s: cell() },
-      { v: k.signDate || '', s: cell({ align: 'center' }) },
+      { v: k.nature || '', s: cell({ align: 'center' }) },
       { v: k.status || '', s: cell({ align: 'center', bold: true, color: st }) },
       ...(perPkg ? [{ v: label(setOf(k)), s: cell({ wrap: true }) }] : []),
       { v: b, s: money() },
@@ -127,16 +135,34 @@ export function buildCostBook(store: Store, costId: string) {
             { v: has(k.income) ? k.income.currency || 'USD' : '', s: cell({ align: 'center', color: C.faint }) }
           ]
         : []),
+      { v: k.tenderDate || '', s: cell({ align: 'center' }) },
+      { v: k.openDate || '', s: cell({ align: 'center' }) },
+      { v: k.awardDate || '', s: cell({ align: 'center' }) },
+      { v: k.signDate || '', s: cell({ align: 'center' }) },
+      { v: pd, s: cell({ align: 'center', color: pd !== null && pd > 30 ? C.amber : undefined }) },
+      { v: cd, s: cell({ align: 'center', color: cd !== null && cd > 15 ? C.amber : undefined }) },
+      { v: k.handler || '', s: cell({ align: 'center' }) },
+      { v: k.contractNo || '', s: cell() },
+      { v: k.reason || '', s: cell({ wrap: true, color: diff !== null && diff < 0 ? C.red : undefined }) },
       { v: inq(k.inquiryId), s: cell({ wrap: true }) },
       { v: (k.files || []).map((f: any) => f.name).join('\n'), s: cell({ wrap: true }) }
     ])
+    const g = (cats[k.category || '未分类'] ??= { n: 0, b: 0, c: 0, sb: 0, diff: 0, i: 0, profit: 0, pi: 0, pd: [], cd: [] })
+    g.n++
+    g.b += b ?? 0
+    g.c += c ?? 0
+    if (diff !== null) (g.sb += b!), (g.diff += diff)
+    g.i += i ?? 0
+    if (profit !== null) (g.pi += i!), (g.profit += profit)
+    if (pd !== null) g.pd.push(pd)
+    if (cd !== null) g.cd.push(cd)
   })
   // 合计
   const T = (extra: Style = {}) => ({ fill: C.total, bold: true, ...extra })
   const totTone = tot.diff < 0 ? C.red : C.green
   const totalRow: Cell[] = [
     { v: `合计（${disp}）`, s: cell(T()) },
-    ...Array.from({ length: perPkg ? 6 : 5 }, () => ({ v: null, s: cell(T()) })),
+    ...Array.from({ length: lead - 1 }, () => ({ v: null, s: cell(T()) })),
     { v: tot.b, s: money(T()) },
     { v: tot.c, s: money(T()) },
     { v: tot.sb ? tot.c / tot.sb : null, s: pctS(T()) },
@@ -146,7 +172,7 @@ export function buildCostBook(store: Store, costId: string) {
   ]
   while (totalRow.length < n) totalRow.push({ v: null, s: cell(T()) })
   rows.push(totalRow)
-  merges.push([rows.length - 1, 0, rows.length - 1, perPkg ? 6 : 5])
+  merges.push([rows.length - 1, 0, rows.length - 1, lead - 1])
   const notes: string[] = []
   if (tot.sb && tot.sb !== tot.b) notes.push(`「签订价 / 责任成本」和合计节超只算已签订价的合同包（对应责任成本 ${tot.sb.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${disp}）。`)
   if (missing) notes.push('有币种缺汇率，对应金额没法换算，留空。')
@@ -154,19 +180,46 @@ export function buildCostBook(store: Store, costId: string) {
     rows.push([{ v: t, s: { color: C.faint, size: 9, italic: true } }])
     merges.push([rows.length - 1, 0, rows.length - 1, n - 1])
   }
-  const base = [5, 26, 22, 14, 11, 8, ...(perPkg ? [18] : []), 15, 15, 10, 15, 9, ...(hasIncome ? [15, 15, 9] : []), 15, 6, 15, 6, ...(hasIncome ? [15, 6] : []), 18, 40]
+  const base = [5, 8, 10, 26, 16, 22, 9, 8, ...(perPkg ? [18] : []), 15, 15, 10, 15, 9, ...(hasIncome ? [15, 15, 9] : []), 15, 6, 15, 6, ...(hasIncome ? [15, 6] : []), 11, 11, 12, 11, 9, 9, 8, 14, 30, 18, 40]
   const sheets: Sheet[] = [
     {
       name: '合同包对比',
       rows,
       merges,
       cols: fitCols(rows.slice(3, 3 + pkgs.length), base),
-      freeze: { rows: 3, cols: 2 },
+      freeze: { rows: 3, cols: 4 },
       filter: pkgs.length ? { row: 2, c1: 0, c2: n - 1, lastRow: 2 + pkgs.length } : undefined,
       printTitleRow: 2,
       heights: [26, 18, 32]
     }
   ]
+
+  // 按品类汇总（有合同包填了品类时）
+  if (pkgs.some((k) => k.category)) {
+    const order = ['劳务', '物资', '设备', '专业分包', '服务', '其他']
+    const names = Object.keys(cats).sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99))
+    const av = (xs: number[]) => (xs.length ? Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 10) / 10 : null)
+    const hc = ['品类', '合同包数', `责任成本（${disp}）`, `签订价（${disp}）`, `节超（${disp}）`, '节超率', ...(hasIncome ? [`对应收入（${disp}）`, `毛利（${disp}）`, '毛利率'] : []), '平均招采时效（天）', '平均合同时效（天）']
+    const hr: Cell[][] = [[{ v: `${pname} 履约成本 · 按品类汇总`, s: S.title }], [{ v: subLine, s: S.sub }], hc.map((c) => ({ v: c, s: S.head }))]
+    const line = (name: string, g: (typeof cats)[string], extra: Style = {}) => {
+      const tone = g.sb ? (g.diff < 0 ? C.red : C.green) : undefined
+      return [
+        { v: name, s: cell({ bold: true, ...extra }) },
+        { v: g.n, s: cell({ align: 'center', ...extra }) },
+        { v: g.b, s: money(extra) },
+        { v: g.c, s: money(extra) },
+        { v: g.sb ? g.diff : null, s: money({ color: tone, bold: true, numFmt: '#,##0.00;-#,##0.00', ...extra }) },
+        { v: g.sb ? g.diff / g.sb : null, s: pctS({ color: tone, numFmt: '+0.0%;-0.0%;0.0%', ...extra }) },
+        ...(hasIncome ? [{ v: g.i, s: money(extra) }, { v: g.pi ? g.profit : null, s: money(extra) }, { v: g.pi ? g.profit / g.pi : null, s: pctS(extra) }] : []),
+        { v: av(g.pd), s: cell({ align: 'center', ...extra }) },
+        { v: av(g.cd), s: cell({ align: 'center', ...extra }) }
+      ] as Cell[]
+    }
+    for (const nm of names) hr.push(line(nm, cats[nm]))
+    const all = Object.values(cats).reduce((a, g) => ({ n: a.n + g.n, b: a.b + g.b, c: a.c + g.c, sb: a.sb + g.sb, diff: a.diff + g.diff, i: a.i + g.i, profit: a.profit + g.profit, pi: a.pi + g.pi, pd: [...a.pd, ...g.pd], cd: [...a.cd, ...g.cd] }), { n: 0, b: 0, c: 0, sb: 0, diff: 0, i: 0, profit: 0, pi: 0, pd: [] as number[], cd: [] as number[] })
+    hr.push(line('合计', all, { fill: C.total, bold: true }))
+    sheets.push({ name: '按品类汇总', rows: hr, merges: [[0, 0, 0, hc.length - 1], [1, 0, 1, hc.length - 1]], cols: [12, 9, 16, 16, 16, 10, ...(hasIncome ? [16, 16, 10] : []), 12, 12], freeze: { rows: 3, cols: 1 }, heights: [26, 30, 32] })
+  }
 
   // 汇率方案
   const curs = [...new Set(sets.flatMap((s) => Object.keys(s.rates || {})))].sort()
@@ -187,4 +240,89 @@ export function buildCostBook(store: Store, costId: string) {
   sheets.push({ name: '汇率', rows: rrows, merges: [[0, 0, 0, Math.max(0, rc.length - 1)], [1, 0, 1, Math.max(0, rc.length - 1)]], cols: fitCols(rrows.slice(3), [9, 12, 24, ...(perPkg ? [30] : []), ...curs.map(() => 16)]), freeze: { rows: 3 }, heights: [26, 18, 24] })
 
   return { buffer: buildXlsx(sheets, { title: `${pname} 履约成本分析` }), fileName: `${pname} 履约成本 ${today}.xlsx`.replace(/[\\/:*?"<>|]/g, '_') }
+}
+
+// ---------- 合同台账：所有项目的合同，按国别分组、按招标编号排序 ----------
+const SIGNED = ['已签约', '已结算']
+const splitNo = (s: string) => {
+  const m = /^(.*?)(\d+)$/.exec(s.trim())
+  return m ? { prefix: m[1], num: Number(m[2]) } : null
+}
+const cmpNo = (a = '', b = '') => {
+  const x = splitNo(a)
+  const y = splitNo(b)
+  if (x && y && x.prefix === y.prefix) return x.num - y.num
+  return a.localeCompare(b)
+}
+
+export function buildLedgerBook(store: Store, req: { country?: string; signedOnly?: boolean; q?: string } = {}) {
+  const countries: string[] = store.settings?.supplierOptions?.countries || ['中国', '土耳其', '阿塞拜疆', '沙特', '其他']
+  const co = (id?: string) => store.companies.find((c) => c.id === id)?.name || ''
+  const s = (req.q || '').toLowerCase()
+  const all = store.costs.flatMap((r: any) => {
+    const p = store.projects.find((x) => x.id === r.projectId)
+    if (!p) return []
+    const txt = `${p.name || ''} ${p.location || ''}`
+    const c = r.country || countries.find((x) => x !== '其他' && txt.includes(x)) || '未设国别'
+    return (r.packages || []).map((k: any) => ({ k, p, c }))
+  })
+  const count = new Map<string, number>()
+  for (const x of all) if (x.k.bidNo) count.set(x.c + '|' + x.k.bidNo, (count.get(x.c + '|' + x.k.bidNo) || 0) + 1)
+  const rowsAll = all
+    .filter((x) => !req.signedOnly || SIGNED.includes(x.k.status))
+    .filter((x) => !req.country || x.c === req.country)
+    .filter((x) => !s || [x.k.bidNo, x.k.name, x.k.contractNo, co(x.k.companyId), x.p.name].some((v) => String(v || '').toLowerCase().includes(s)))
+  if (!rowsAll.length) throw new Error('没有符合条件的合同')
+  const today = new Date().toISOString().slice(0, 10)
+  const cols = ['序号', '国别', '招标编号', '合同包（工程名称）', '项目', '签约对象', '单位性质', '品类', '招标方式', '合同额', '币种', '签订日期', '合同编号', '状态', '经办人']
+  const n = cols.length
+  const title = `合同台账${req.country ? ' · ' + req.country : ''}`
+  const rows: Cell[][] = [
+    [{ v: title, s: S.title }],
+    [{ v: `导出日期 ${today} · 共 ${rowsAll.length} 个合同${req.signedOnly ? '（只含已签约 / 已结算）' : ''} · 合同额为原币，币种不同不做合计 · 标「共用」的是同一次招标分签的合同`, s: S.sub }],
+    cols.map((c) => ({ v: c, s: S.head }))
+  ]
+  const merges: Sheet['merges'] = [
+    [0, 0, 0, n - 1],
+    [1, 0, 1, n - 1]
+  ]
+  const order = [...new Set(rowsAll.map((x) => x.c))].sort((a, b) => Number(a === '未设国别') - Number(b === '未设国别') || a.localeCompare(b))
+  let i = 0
+  for (const c of order) {
+    const list = rowsAll.filter((x) => x.c === c).sort((a, b) => Number(!a.k.bidNo) - Number(!b.k.bidNo) || cmpNo(a.k.bidNo, b.k.bidNo) || String(a.k.signDate || '').localeCompare(String(b.k.signDate || '')))
+    for (const { k, p } of list) {
+      const shared = k.bidNo && (count.get(c + '|' + k.bidNo) || 0) > 1
+      const st = k.status === '已结算' ? C.green : k.status === '已签约' ? C.amber : undefined
+      rows.push([
+        { v: ++i, s: cell({ align: 'center' }) },
+        { v: c, s: cell({ align: 'center' }) },
+        { v: (k.bidNo || '') + (shared ? '（共用）' : ''), s: cell() },
+        { v: k.name || '', s: cell({ bold: true, wrap: true }) },
+        { v: p.name || '', s: cell({ wrap: true }) },
+        { v: co(k.companyId), s: cell({ wrap: true }) },
+        { v: k.nature || '', s: cell({ align: 'center' }) },
+        { v: k.category || '', s: cell({ align: 'center' }) },
+        { v: k.method || '', s: cell({ align: 'center' }) },
+        { v: has(k.contract) ? Number(k.contract.amount) : null, s: money() },
+        { v: has(k.contract) ? k.contract.currency || 'USD' : '', s: cell({ align: 'center' }) },
+        { v: k.signDate || '', s: cell({ align: 'center' }) },
+        { v: k.contractNo || '', s: cell() },
+        { v: k.status || '', s: cell({ align: 'center', bold: true, color: st }) },
+        { v: k.handler || '', s: cell({ align: 'center' }) }
+      ])
+    }
+  }
+  const sheets: Sheet[] = [
+    {
+      name: '合同台账',
+      rows,
+      merges,
+      cols: fitCols(rows.slice(3), [5, 8, 18, 30, 22, 28, 9, 9, 10, 16, 6, 11, 16, 8, 8]),
+      freeze: { rows: 3, cols: 3 },
+      filter: { row: 2, c1: 0, c2: n - 1, lastRow: rows.length - 1 },
+      printTitleRow: 2,
+      heights: [26, 18, 28]
+    }
+  ]
+  return { buffer: buildXlsx(sheets, { title }), fileName: `${title} ${today}.xlsx`.replace(/[\\/:*?"<>|]/g, '_') }
 }

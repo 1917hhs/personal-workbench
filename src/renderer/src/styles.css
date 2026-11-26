@@ -893,7 +893,7 @@ tr.drop-row.over td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .cost-title { font-size: 18px; font-weight: 700; }
 .cost-disp { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
 .cost-disp select { width: auto; }
-.cost-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.cost-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 12px; }
 .cost-kpi { padding: 12px 14px; }
 .cost-kpi-v { font-size: 22px; font-weight: 700; margin: 4px 0 2px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cost-kpi-u { font-size: 12px; font-weight: 500; color: var(--text-3); margin-left: 4px; }
@@ -941,3 +941,33 @@ tr.drop-row.over td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .money-in { display: flex; gap: 6px; }
 .money-in input { flex: 1; min-width: 0; }
 .money-in select { width: 84px; flex: none; }
+
+/* 履约成本：视图切换、品类分组、超支原因、招采过程 */
+.cost-bar-row { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.cost-table tr.cost-group td { background: color-mix(in srgb, var(--accent) 6%, var(--panel)); font-weight: 600; font-size: 12.5px; padding: 6px 12px; }
+.cost-table tr.cost-group td .faint { font-weight: 400; margin-left: 4px; }
+.cost-cat { display: inline-block; font-size: 10.5px; padding: 0 5px; margin-right: 6px; border-radius: 3px; background: var(--hover, rgba(0,0,0,.05)); color: var(--text-2); }
+.cost-reason { font-size: 11.5px; color: var(--danger); margin-top: 2px; max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cost-reason.no-reason { color: var(--warn, #b7791f); }
+.cost-table td.ctr { text-align: center; white-space: nowrap; font-size: 12.5px; }
+.cost-table td.mono { font-family: Consolas, monospace; font-size: 12px; }
+.cost-table.proc td.num { white-space: nowrap; }
+.amber-text { color: var(--warn, #b7791f); }
+.pkg-sec { grid-column: 1 / -1; font-weight: 600; font-size: 13px; padding-top: 8px; margin-top: 2px; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: baseline; }
+.pkg-sec .faint { font-weight: 400; font-size: 11.5px; }
+.chip-pick { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip-pick button { border: 1px solid var(--line); background: var(--panel); color: var(--text-2); border-radius: 12px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
+.chip-pick button:hover { border-color: var(--accent); }
+.chip-pick button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pkg-dates { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 10px; }
+.pkg-gaps { grid-column: 1 / -1; display: flex; gap: 14px; font-size: 12px; min-height: 0; }
+.pkg-gaps:empty { display: none; }
+.cost-ledger-item { border-bottom: 1px dashed var(--line); margin-bottom: 6px; padding-bottom: 8px; }
+.cost-country { border: 0; background: none; color: var(--accent); font-size: 12px; padding: 0; cursor: pointer; }
+.cost-share { display: inline-block; margin-left: 6px; font-size: 10.5px; padding: 0 5px; border-radius: 3px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-family: inherit; }
+.cost-cur { font-size: 11px; }
+.cost-table.ledger td { font-size: 13px; }
+.bid-hint { font-size: 11.5px; color: var(--text-3); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.bid-hint button { border: 1px solid var(--line); background: var(--panel); border-radius: 4px; padding: 0 6px; font: 11.5px Consolas, monospace; color: var(--accent); cursor: pointer; }
+.bid-hint button:hover { border-color: var(--accent); }
+.bid-hint.warn { color: var(--warn, #b7791f); display: block; }

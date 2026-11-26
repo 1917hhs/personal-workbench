@@ -15,7 +15,7 @@ import { aiLog, aiStatus, restartMcp, undoAiAction } from './mcp'
 import { findRefs, importMedia, purgeMedia, refPath, refStatus as memoRefStatus, renameProjectRefs, saveMedia, type RefTarget } from './memo'
 import { deleteSection, getProfile, moveSection, profileMarkdown, revertChange, saveSection } from './profile'
 import { buildInquiryBook, exportOptions, type ExportReq } from './inqExport'
-import { buildCostBook } from './costExport'
+import { buildCostBook, buildLedgerBook } from './costExport'
 
 // 生成一个 16x16 的小图标，用于把文件从导图拖到微信、资源管理器
 function dragIcon() {
@@ -240,9 +240,9 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   })
 
   // 履约成本表导出 Excel（见 costExport.ts）
-  h('cost:export', async (id: string) => {
-    const { buffer, fileName } = buildCostBook(store, id)
-    const r = await dialog.showSaveDialog(getWin()!, { title: '导出履约成本', defaultPath: fileName, filters: [{ name: 'Excel', extensions: ['xlsx'] }] })
+  h('cost:export', async (arg: string | { ledger: any }) => {
+    const { buffer, fileName } = typeof arg === 'string' ? buildCostBook(store, arg) : buildLedgerBook(store, arg.ledger)
+    const r = await dialog.showSaveDialog(getWin()!, { title: typeof arg === 'string' ? '导出履约成本' : '导出合同台账', defaultPath: fileName, filters: [{ name: 'Excel', extensions: ['xlsx'] }] })
     if (r.canceled || !r.filePath) return null
     try {
       fs.writeFileSync(r.filePath, buffer)

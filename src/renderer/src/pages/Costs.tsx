@@ -22,11 +22,28 @@ type Pkg = {
   rateSetId?: string | null // 按合同包换算时用的汇率方案，空 = 默认方案
   files?: FileLink[]
   note?: string
+  // 招采过程（参照公司「招标台账」）
+  category?: string // 品类：劳务 / 物资 / 设备 / 专业分包…
+  method?: string // 招标方式
+  bidNo?: string // 招标编号
+  nature?: string // 单位性质：中资 / 属地
+  tenderDate?: string // 招标文件发出
+  openDate?: string // 开标
+  awardDate?: string // 定标审批完成
+  handler?: string // 经办人
+  reason?: string // 超支 / 亏损原因分析
 }
+
+export const CATS = ['劳务', '物资', '设备', '专业分包', '服务', '其他']
+const METHODS = ['公开招标', '邀请招标', '议标', '竞争性谈判', '直接委托', '增补合同']
+const NATURES = ['中资单位', '属地单位', '第三国单位']
+/** 两个日期之间的天数，缺一个就是 null */
+const fullDate = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s)
+const dayGap = (a?: string, b?: string) => (fullDate(a) && fullDate(b) ? Math.round((new Date(b + 'T00:00:00').getTime() - new Date(a + 'T00:00:00').getTime()) / 86400000) : null)
 /** 一套汇率方案：哪天确认的、备注（如「合同签订时」「月底结算」）、各币种汇率 */
 type RateSet = { id: string; date?: string; note?: string; rates: Record<string, number> }
 // rates / rateDate 始终同步为当前方案的内容（老数据只有这两个字段时当作一套方案）
-type CostRec = { id: string; projectId: string; displayCurrency?: string; rates?: Record<string, number>; rateDate?: string; rateSets?: RateSet[]; rateSetId?: string; rateMode?: 'unified' | 'pkg'; packages?: Pkg[] }
+type CostRec = { id: string; projectId: string; displayCurrency?: string; rates?: Record<string, number>; rateDate?: string; rateSets?: RateSet[]; rateSetId?: string; rateMode?: 'unified' | 'pkg'; country?: string; packages?: Pkg[] }
 
 function rateSetsOf(rec: CostRec): { sets: RateSet[]; active: RateSet | null } {
   const sets: RateSet[] = rec.rateSets?.length ? rec.rateSets : rec.rates && Object.keys(rec.rates).length ? [{ id: 'legacy', date: rec.rateDate, note: '', rates: rec.rates }] : []
@@ -34,8 +51,8 @@ function rateSetsOf(rec: CostRec): { sets: RateSet[]; active: RateSet | null } {
 }
 const setLabel = (s: RateSet) => [s.date || '未填日期', s.note].filter(Boolean).join(' · ')
 
-const STATUS = ['招标中', '已签约', '已结算']
-const statusCls = (s?: string) => (s === '已结算' ? 'good' : s === '已签约' ? 'amber' : '')
+const STATUS = ['招标中', '已定标', '已签约', '已结算']
+const statusCls = (s?: string) => (s === '已结算' ? 'good' : s === '已签约' ? 'amber' : s === '已定标' ? 'blue' : '')
 
 /** 换算：rates 里是「1 USD = r 外币」，USD 自己是 1。缺汇率时返回 null */
 function makeFx(rates: Record<string, number> = {}) {
@@ -51,12 +68,33 @@ const fmt = (n: number | null | undefined, digits = 0) => (n === null || n === u
 const pct = (n: number | null) => (n === null || !isFinite(n) ? '—' : (n * 100).toFixed(1) + '%')
 const hasAmt = (m?: Money) => !!m && m.amount !== null && m.amount !== undefined && (m.amount as any) !== ''
 
+/** 成本表的国别：自己设过就用它，否则从项目名称 / 地点里认（招标编号在同一国别内连续编号） */
+export function countryOf(rec: CostRec, project: any, countries: string[]) {
+  if (rec.country) return rec.country
+  const s = `${project?.name || ''} ${project?.location || ''}`
+  return countries.find((c) => c !== '其他' && s.includes(c)) || ''
+}
+const SIGNED = ['已签约', '已结算']
+/** 编号按「前缀 + 末尾数字」拆开，方便按数字排序、算下一个 */
+const splitNo = (s: string) => {
+  const m = /^(.*?)(\d+)$/.exec(s.trim())
+  return m ? { prefix: m[1], num: Number(m[2]), width: m[2].length } : null
+}
+const cmpNo = (a = '', b = '') => {
+  const x = splitNo(a)
+  const y = splitNo(b)
+  if (x && y && x.prefix === y.prefix) return x.num - y.num
+  return a.localeCompare(b)
+}
+
 export default function Costs({ focusId }: { focusId?: string }) {
   const { data, saveItem, deleteItem } = useApp()
   const recs: CostRec[] = data.costs || []
   const [sel, setSel] = useState<string | null>(focusId || recs[0]?.projectId || null)
   const [adding, setAdding] = useState(false)
+  const [openPkg, setOpenPkg] = useState<string | null>(null) // 从台账点进来时直接打开这个合同包
   const rec = recs.find((r) => r.projectId === sel)
+  const signedCount = recs.reduce((s, r) => s + (r.packages || []).filter((k) => SIGNED.includes(k.status || '')).length, 0)
 
   // 左侧：已建立成本表的项目，按进行中的优先
   const projOf = (id: string) => data.projects.find((p) => p.id === id)
@@ -80,6 +118,12 @@ export default function Costs({ focusId }: { focusId?: string }) {
       </div>
       <div className="lib-wrap">
         <div className="lib-types" style={{ width: 240 }}>
+          {list.length > 0 && (
+            <div className={'tpl-item cost-ledger-item' + (sel === '__ledger' ? ' on' : '')} onClick={() => setSel('__ledger')}>
+              <b>📒 合同台账</b>
+              <div className="faint" style={{ fontSize: 11 }}>所有项目已签合同 {signedCount} 个 · 按国别看招标编号</div>
+            </div>
+          )}
           {list.length === 0 && <div className="faint" style={{ fontSize: 12, padding: 8, lineHeight: 1.7 }}>点右上角「+ 添加项目」，选一个在履约的项目，再把签了的合同一个个加进来。</div>}
           {list.map(({ r, p }) => {
             const n = (r.packages || []).length
@@ -94,8 +138,16 @@ export default function Costs({ focusId }: { focusId?: string }) {
           })}
         </div>
         <div className="lib-list">
-          {rec && projOf(rec.projectId) ? (
-            <CostDetail key={rec.id} rec={rec} onRemove={async () => {
+          {sel === '__ledger' ? (
+            <ContractLedger
+              recs={recs}
+              onOpen={(projectId, pkgId) => {
+                setOpenPkg(pkgId)
+                setSel(projectId)
+              }}
+            />
+          ) : rec && projOf(rec.projectId) ? (
+            <CostDetail key={rec.id} rec={rec} allRecs={recs} openPkgId={openPkg} onOpened={() => setOpenPkg(null)} onRemove={async () => {
               if (!confirm(`从履约成本里移除「${projOf(rec.projectId)!.name}」？（只删这张成本表，不动项目和文件）`)) return
               await deleteItem('costs', rec.id)
               setSel(null)
@@ -126,7 +178,7 @@ export default function Costs({ focusId }: { focusId?: string }) {
   )
 }
 
-function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
+function CostDetail({ rec, allRecs, openPkgId, onOpened, onRemove }: { rec: CostRec; allRecs: CostRec[]; openPkgId: string | null; onOpened: () => void; onRemove: () => void }) {
   const { data, saveItem, go, toast } = useApp()
   const sup = useSup()
   const p = data.projects.find((x) => x.id === rec.projectId)!
@@ -146,6 +198,41 @@ function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
   if (!pkgs.length && disp !== 'USD' && !((active?.rates || {})[disp] > 0)) missing.push(disp)
   const [edit, setEdit] = useState<Pkg | null>(null)
   const [rateOpen, setRateOpen] = useState(false)
+  // 从合同台账点进来：打开那个合同包
+  useEffect(() => {
+    if (!openPkgId) return
+    const k = pkgs.find((x) => x.id === openPkgId)
+    if (k) setEdit(k)
+    onOpened()
+  }, [openPkgId])
+  // 国别：同一国别的招标编号连续编，编号提示只看同国别
+  const country = countryOf(rec, p, sup.countries)
+  const peers = allRecs
+    .filter((r) => countryOf(r, data.projects.find((x) => x.id === r.projectId), sup.countries) === country)
+    .flatMap((r) => (r.packages || []).map((k) => ({ k, projectId: r.projectId, projectName: data.projects.find((x) => x.id === r.projectId)?.name || '' })))
+    .filter((x) => x.k.bidNo)
+  // 视图：成本对比 / 招采过程；是否按品类分组。记住上次的选择
+  const pref = (k: string, d: string) => {
+    try {
+      return localStorage.getItem(k) || d
+    } catch {
+      return d
+    }
+  }
+  const [view, setViewRaw] = useState<'cost' | 'proc'>(() => (pref('costs.view', 'cost') === 'proc' ? 'proc' : 'cost'))
+  const [groupOn, setGroupRaw] = useState(() => pref('costs.group', '1') === '1')
+  const setView = (v: 'cost' | 'proc') => {
+    setViewRaw(v)
+    try {
+      localStorage.setItem('costs.view', v)
+    } catch {}
+  }
+  const setGroup = (v: boolean) => {
+    setGroupRaw(v)
+    try {
+      localStorage.setItem('costs.group', v ? '1' : '0')
+    } catch {}
+  }
 
   const save = (patch: Partial<CostRec>) => saveItem('costs', { id: rec.id, ...patch })
   const applySet = (v: string) => {
@@ -164,8 +251,36 @@ function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
     const c = fx(k.contract, disp)
     const i = fx(k.income, disp)
     const save_ = b !== null && c !== null ? b - c : null // 节超：正数节约，负数超支
-    return { k, rs, b, c, i, diff: save_, diffRate: save_ !== null && b ? save_ / b : null, ratio: b && c !== null ? c / b : null, profit: i !== null && c !== null ? i - c : null, margin: i && c !== null ? (i - c) / i : null }
+    return {
+      k,
+      rs,
+      b,
+      c,
+      i,
+      diff: save_,
+      diffRate: save_ !== null && b ? save_ / b : null,
+      ratio: b && c !== null ? c / b : null,
+      profit: i !== null && c !== null ? i - c : null,
+      margin: i && c !== null ? (i - c) / i : null,
+      procDays: dayGap(k.tenderDate, k.awardDate), // 招采时效：招标文件发出 → 定标
+      contractDays: dayGap(k.awardDate, k.signDate) // 合同时效：定标 → 合同签订
+    }
   })
+  type Row = (typeof rows)[number]
+  // 按品类分组（有合同包填了品类才分组）
+  const canGroup = pkgs.some((k) => k.category)
+  const grouped = groupOn && canGroup
+  const groups: { name: string; rows: Row[] }[] = grouped
+    ? [...CATS, ...new Set(pkgs.map((k) => k.category || '').filter((c) => c && !CATS.includes(c))), '']
+        .map((name) => ({ name: name || '未分类', rows: rows.filter((r) => (r.k.category || '') === name) }))
+        .filter((g) => g.rows.length)
+    : [{ name: '', rows }]
+  const avg = (xs: (number | null)[]) => {
+    const v = xs.filter((x): x is number => x !== null)
+    return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null
+  }
+  const procAvg = avg(rows.map((r) => r.procDays))
+  const contractAvg = avg(rows.map((r) => r.contractDays))
   // 各合同包用的都是同一套时不逐行标，表头说一句就行
   const sameRate = new Set(rows.map((r) => r.rs?.id)).size <= 1
   const sum = (f: (r: (typeof rows)[number]) => number | null, only?: (r: (typeof rows)[number]) => boolean) => rows.filter((r) => (only ? only(r) : true)).reduce((s, r) => s + (f(r) ?? 0), 0)
@@ -194,6 +309,13 @@ function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
             {p.name}
           </div>
           <div className="faint" style={{ fontSize: 12 }}>
+            <select className="cost-country" value={country} title="国别：招标编号在同一国别内连续编号，合同台账按国别分组" onChange={(e) => save({ country: e.target.value })}>
+              <option value="">未设国别</option>
+              {sup.countries.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+            {' · '}
             {pkgs.length} 个合同包 · 已签 {signed.length} 个{tot.over ? ` · ` : ''}
             {tot.over > 0 && <span className="red-text">{tot.over} 个超出责任成本</span>}
             {perPkg && sameRate && rows[0]?.rs && <span title={setLabel(rows[0].rs)}> · 各合同包都按 {(rows[0].rs.date || '').slice(5)} 汇率</span>}
@@ -247,7 +369,26 @@ function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
         ) : (
           <Kpi label="毛利" value="—" sub="合同包里填「对应收入」后显示" />
         )}
+        {(procAvg !== null || contractAvg !== null) && (
+          <Kpi label="招采时效（平均）" value={procAvg === null ? '—' : procAvg.toFixed(0)} unit="天" sub={`发标 → 定标 · 合同时效 ${contractAvg === null ? '—' : contractAvg.toFixed(0) + ' 天'}`} />
+        )}
       </div>
+
+      {pkgs.length > 0 && (
+        <div className="cost-bar-row">
+          <div className="seg">
+            <button className={view === 'cost' ? 'on' : ''} onClick={() => setView('cost')}>成本对比</button>
+            <button className={view === 'proc' ? 'on' : ''} onClick={() => setView('proc')}>招采过程</button>
+          </div>
+          {canGroup && (
+            <label className="tc-opt">
+              <input type="checkbox" checked={groupOn} onChange={(e) => setGroup(e.target.checked)} />
+              按品类分组
+            </label>
+          )}
+          {tot.over > 0 && rows.some((r) => r.diff !== null && r.diff < 0 && !r.k.reason) && <span className="red-text" style={{ fontSize: 12 }}>有超支合同包还没写原因</span>}
+        </div>
+      )}
 
       {missing.length > 0 && (
         <div className="cost-warn" onClick={() => setRateOpen(true)}>
@@ -261,84 +402,114 @@ function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
         </Empty>
       ) : (
         <div className="card cost-table-wrap">
-          <table className="cost-table">
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left' }}>合同包</th>
-                <th>状态</th>
-                <th className="num">责任成本</th>
-                <th className="num">签订价</th>
-                <th style={{ width: 150 }}>签订价 / 责任成本</th>
-                <th className="num">节超</th>
-                {hasIncome && <th className="num">毛利率</th>}
-                <th>文件</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const over = r.diff !== null && r.diff < 0
+          {view === 'cost' ? (
+            <table className="cost-table">
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>合同包</th>
+                  <th>状态</th>
+                  <th className="num">责任成本</th>
+                  <th className="num">签订价</th>
+                  <th style={{ width: 150 }}>签订价 / 责任成本</th>
+                  <th className="num" title="责任成本降低额 = 责任成本 − 签订价">节超</th>
+                  {hasIncome && <th className="num">毛利率</th>}
+                  <th>文件</th>
+                </tr>
+              </thead>
+              {groups.map((g) => {
+                const gb = g.rows.reduce((s, r) => s + (r.diff !== null ? r.b! : 0), 0)
+                const gc = g.rows.reduce((s, r) => s + (r.diff !== null ? r.c! : 0), 0)
+                const gd = gb - gc
                 return (
-                  <tr key={r.k.id} className="click" onClick={() => setEdit(r.k)}>
-                    <td>
-                      <div className="cost-name">
-                        {r.k.name || '未命名合同包'}
-                        {perPkg && !sameRate && r.rs && (
-                          <span className={'cost-rate-tag' + (r.k.rateSetId && r.rs.id === r.k.rateSetId ? ' own' : '')} title={(r.k.rateSetId && r.rs.id === r.k.rateSetId ? '这个合同包选的汇率' : '没单独选，用默认方案') + '：' + setLabel(r.rs) + '\n' + Object.entries(r.rs.rates).map(([c, v]) => `1 USD = ${v} ${c}`).join('\n')}>
-                            {(r.rs.date || '').slice(5) || '未填日期'} 汇率
-                          </span>
-                        )}
-                      </div>
-                      <div className="faint cost-sub">{[co(r.k.companyId), r.k.contractNo, r.k.signDate].filter(Boolean).join(' · ') ||' '}</div>
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span className={'tag ' + statusCls(r.k.status)}>{r.k.status || '—'}</span>
-                    </td>
-                    <td className="num">
-                      {fmt(r.b)}
-                      {orig(r.k.budget) && <div className="faint cost-sub">{orig(r.k.budget)}</div>}
-                    </td>
-                    <td className="num">
-                      {fmt(r.c)}
-                      {orig(r.k.contract) && <div className="faint cost-sub">{orig(r.k.contract)}</div>}
-                    </td>
-                    <td>
-                      {r.ratio !== null ? (
-                        <div className="cost-bar" title={`签订价是责任成本的 ${pct(r.ratio)}`}>
-                          <div className="cost-bar-track">
-                            <div className={'cost-bar-fill' + (over ? ' over' : '')} style={{ width: Math.min(100, (r.ratio / 1.25) * 100) + '%' }} />
-                            <div className="cost-bar-mark" style={{ left: (1 / 1.25) * 100 + '%' }} />
-                          </div>
-                          <span className={over ? 'red-text' : ''}>{pct(r.ratio)}</span>
-                        </div>
-                      ) : (
-                        <span className="faint" style={{ fontSize: 12 }}>{hasAmt(r.k.contract) ? '缺汇率' : '未签'}</span>
-                      )}
-                    </td>
-                    <td className={'num ' + (r.diff === null ? '' : over ? 'red-text' : 'green-text')}>
-                      {r.diff === null ? '—' : (over ? '超 ' : '省 ') + fmt(Math.abs(r.diff))}
-                      {r.diffRate !== null && <div className="cost-sub">{pct(Math.abs(r.diffRate))}</div>}
-                    </td>
-                    {hasIncome && <td className={'num ' + (r.margin === null ? '' : r.margin < 0 ? 'red-text' : '')}>{pct(r.margin)}</td>}
-                    <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                      <FileChips files={r.k.files || []} compact />
-                    </td>
-                  </tr>
+                  <tbody key={g.name || '_'}>
+                    {grouped && (
+                      <tr className="cost-group">
+                        <td colSpan={2}>
+                          {g.name} <span className="faint">{g.rows.length} 个</span>
+                        </td>
+                        <td className="num">{fmt(g.rows.some((r) => r.b !== null) ? g.rows.reduce((s, r) => s + (r.b ?? 0), 0) : null)}</td>
+                        <td className="num">{fmt(g.rows.some((r) => r.c !== null) ? g.rows.reduce((s, r) => s + (r.c ?? 0), 0) : null)}</td>
+                        <td>{gb ? <span className="faint">{pct(gc / gb)}</span> : null}</td>
+                        <td className={'num ' + (gb ? (gd < 0 ? 'red-text' : 'green-text') : '')}>{gb ? (gd < 0 ? '超 ' : '省 ') + fmt(Math.abs(gd)) : '—'}</td>
+                        {hasIncome && <td />}
+                        <td />
+                      </tr>
+                    )}
+                    {g.rows.map((r) => (
+                      <CostRow key={r.k.id} r={r} disp={disp} showRate={perPkg && !sameRate} hasIncome={hasIncome} grouped={grouped} onEdit={() => setEdit(r.k)} />
+                    ))}
+                  </tbody>
                 )
               })}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td>合计（{disp}）</td>
-                <td />
-                <td className="num">{fmt(tot.budget)}</td>
-                <td className="num">{fmt(tot.contract)}</td>
-                <td>{tot.signedBudget ? <span className="faint" style={{ fontSize: 12 }}>已签部分 {pct(tot.contract / (tot.signedBudget || 1))}</span> : null}</td>
-                <td className={'num ' + (tot.diff < 0 ? 'red-text' : 'green-text')}>{signed.length ? (tot.diff < 0 ? '超 ' : '省 ') + fmt(Math.abs(tot.diff)) : '—'}</td>
-                {hasIncome && <td className="num">{pct(totMargin)}</td>}
-                <td />
-              </tr>
-            </tfoot>
-          </table>
+              <tfoot>
+                <tr>
+                  <td>合计（{disp}）</td>
+                  <td />
+                  <td className="num">{fmt(tot.budget)}</td>
+                  <td className="num">{fmt(tot.contract)}</td>
+                  <td>{tot.signedBudget ? <span className="faint" style={{ fontSize: 12 }}>已签部分 {pct(tot.contract / (tot.signedBudget || 1))}</span> : null}</td>
+                  <td className={'num ' + (tot.diff < 0 ? 'red-text' : 'green-text')}>{signed.length ? (tot.diff < 0 ? '超 ' : '省 ') + fmt(Math.abs(tot.diff)) : '—'}</td>
+                  {hasIncome && <td className="num">{pct(totMargin)}</td>}
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          ) : (
+            <table className="cost-table proc">
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>合同包</th>
+                  <th>招标方式</th>
+                  <th>招标编号</th>
+                  <th>单位性质</th>
+                  <th>招文发出</th>
+                  <th>开标</th>
+                  <th>定标</th>
+                  <th>签约</th>
+                  <th className="num" title="招标文件发出 → 定标审批完成">招采时效</th>
+                  <th className="num" title="定标审批完成 → 合同签订">合同时效</th>
+                  <th>经办人</th>
+                </tr>
+              </thead>
+              {groups.map((g) => (
+                <tbody key={g.name || '_'}>
+                  {grouped && (
+                    <tr className="cost-group">
+                      <td colSpan={11}>
+                        {g.name} <span className="faint">{g.rows.length} 个</span>
+                      </td>
+                    </tr>
+                  )}
+                  {g.rows.map((r) => (
+                    <tr key={r.k.id} className="click" onClick={() => setEdit(r.k)}>
+                      <td>
+                        <div className="cost-name">{r.k.name || '未命名合同包'}</div>
+                        <div className="faint cost-sub">{co(r.k.companyId) || ' '}</div>
+                      </td>
+                      <td className="ctr">{r.k.method || '—'}</td>
+                      <td className="ctr mono">{r.k.bidNo || '—'}</td>
+                      <td className="ctr">{r.k.nature || '—'}</td>
+                      <td className="ctr">{r.k.tenderDate || '—'}</td>
+                      <td className="ctr">{r.k.openDate || '—'}</td>
+                      <td className="ctr">{r.k.awardDate || '—'}</td>
+                      <td className="ctr">{r.k.signDate || '—'}</td>
+                      <td className={'num' + (r.procDays !== null && r.procDays > 30 ? ' amber-text' : '')}>{r.procDays === null ? '—' : r.procDays + ' 天'}</td>
+                      <td className={'num' + (r.contractDays !== null && r.contractDays > 15 ? ' amber-text' : '')}>{r.contractDays === null ? '—' : r.contractDays + ' 天'}</td>
+                      <td className="ctr">{r.k.handler || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
+              <tfoot>
+                <tr>
+                  <td colSpan={8}>平均</td>
+                  <td className="num">{procAvg === null ? '—' : procAvg.toFixed(1) + ' 天'}</td>
+                  <td className="num">{contractAvg === null ? '—' : contractAvg.toFixed(1) + ' 天'}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          )}
         </div>
       )}
       <div className="cost-foot faint">
@@ -361,8 +532,209 @@ function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
           onClose={() => setRateOpen(false)}
         />
       )}
-      {edit && <PkgDialog pkg={edit} project={p} currencies={currencies} sets={sets} defaultSet={active} perPkg={perPkg} onClose={() => setEdit(null)} onSave={(k) => (savePkg(k), setEdit(null))} onDelete={pkgs.some((x) => x.id === edit.id) ? () => (delPkg(edit.id), setEdit(null)) : undefined} />}
+      {edit && <PkgDialog pkg={edit} project={p} country={country} peers={peers} currencies={currencies} sets={sets} defaultSet={active} perPkg={perPkg} onClose={() => setEdit(null)} onSave={(k) => (savePkg(k), setEdit(null))} onDelete={pkgs.some((x) => x.id === edit.id) ? () => (delPkg(edit.id), setEdit(null)) : undefined} />}
     </div>
+  )
+}
+
+/**
+ * 合同台账：所有履约项目里的合同，按国别分组、按招标编号排序。
+ * 看签约对象、合同额、招标编号、签订日期；同一编号分签的几个合同标「共用」；点一行回到那个项目打开合同包。
+ */
+function ContractLedger({ recs, onOpen }: { recs: CostRec[]; onOpen: (projectId: string, pkgId: string) => void }) {
+  const { data, toast } = useApp()
+  const sup = useSup()
+  const [q, setQ] = useState('')
+  const [signedOnly, setSignedOnly] = useState(true)
+  const [ctry, setCtry] = useState('')
+  const all = recs.flatMap((r) => {
+    const p = data.projects.find((x) => x.id === r.projectId)
+    if (!p) return []
+    const c = countryOf(r, p, sup.countries) || '未设国别'
+    return (r.packages || []).map((k) => ({ k, p, country: c }))
+  })
+  const countries = [...new Set(all.map((x) => x.country))].sort((a, b) => Number(a === '未设国别') - Number(b === '未设国别') || a.localeCompare(b))
+  const co = (id?: string | null) => data.companies.find((c) => c.id === id)?.name || ''
+  const s = q.trim().toLowerCase()
+  const rows = all
+    .filter((x) => !signedOnly || SIGNED.includes(x.k.status || ''))
+    .filter((x) => !ctry || x.country === ctry)
+    .filter((x) => !s || [x.k.bidNo, x.k.name, x.k.contractNo, co(x.k.companyId), x.p.name].some((v) => String(v || '').toLowerCase().includes(s)))
+  const count = new Map<string, number>()
+  for (const x of all) if (x.k.bidNo) count.set(x.country + '|' + x.k.bidNo, (count.get(x.country + '|' + x.k.bidNo) || 0) + 1)
+  const groups = countries
+    .filter((c) => rows.some((x) => x.country === c))
+    .map((c) => ({
+      c,
+      rows: rows
+        .filter((x) => x.country === c)
+        .sort((a, b) => Number(!a.k.bidNo) - Number(!b.k.bidNo) || cmpNo(a.k.bidNo, b.k.bidNo) || String(a.k.signDate || '').localeCompare(String(b.k.signDate || '')))
+    }))
+  // 每个国别、每种编号前缀用到的最大号
+  const lastNos = (c: string) => {
+    const by = new Map<string, { num: number; raw: string }>()
+    for (const x of all.filter((y) => y.country === c && y.k.bidNo)) {
+      const v = splitNo(x.k.bidNo!)
+      if (v && (!by.has(v.prefix) || v.num > by.get(v.prefix)!.num)) by.set(v.prefix, { num: v.num, raw: x.k.bidNo! })
+    }
+    return [...by.values()].map((v) => v.raw)
+  }
+  const exportIt = () => api.call('cost:export', { ledger: { country: ctry, signedOnly, q: q.trim() } }).catch((e: any) => toast(e.message || String(e)))
+
+  return (
+    <div className="cost-page">
+      <div className="cost-head">
+        <div>
+          <div className="cost-title">合同台账</div>
+          <div className="faint" style={{ fontSize: 12 }}>所有履约项目的合同 · 招标编号在同一国别内连续编号，点一行打开合同包</div>
+        </div>
+        <span className="spacer" />
+        <input className="input" style={{ width: 240 }} placeholder="搜编号、合同包、单位、合同号、项目…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <label className="tc-opt">
+          <input type="checkbox" checked={signedOnly} onChange={(e) => setSignedOnly(e.target.checked)} />
+          只看已签约
+        </label>
+        <button className="btn" disabled={!rows.length} onClick={exportIt}>导出 Excel</button>
+      </div>
+      <div className="cost-bar-row">
+        <div className="seg">
+          <button className={!ctry ? 'on' : ''} onClick={() => setCtry('')}>全部</button>
+          {countries.map((c) => (
+            <button key={c} className={ctry === c ? 'on' : ''} onClick={() => setCtry(c)}>
+              {c}
+            </button>
+          ))}
+        </div>
+        <span className="faint" style={{ fontSize: 12 }}>{rows.length} 个合同</span>
+      </div>
+      {rows.length === 0 ? (
+        <Empty title="没有符合条件的合同" text={signedOnly ? '只列状态为「已签约」「已结算」的合同包，可以取消「只看已签约」看全部。' : '在各项目的履约成本里添加合同包。'} />
+      ) : (
+        <div className="card cost-table-wrap">
+          <table className="cost-table ledger">
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left' }}>招标编号</th>
+                <th style={{ textAlign: 'left' }}>合同包（工程名称）</th>
+                <th style={{ textAlign: 'left' }}>项目</th>
+                <th style={{ textAlign: 'left' }}>签约对象</th>
+                <th>品类</th>
+                <th className="num">合同额</th>
+                <th>签订日期</th>
+                <th style={{ textAlign: 'left' }}>合同编号</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            {groups.map((g) => {
+              const last = lastNos(g.c)
+              return (
+                <tbody key={g.c}>
+                  <tr className="cost-group">
+                    <td colSpan={9}>
+                      {g.c} <span className="faint">{g.rows.length} 个合同{last.length ? ' · 已编到 ' + last.join('、') : ''}</span>
+                    </td>
+                  </tr>
+                  {g.rows.map(({ k, p, country }) => {
+                    const n = k.bidNo ? count.get(country + '|' + k.bidNo) || 0 : 0
+                    return (
+                      <tr key={k.id} className="click" onClick={() => onOpen(p.id, k.id)}>
+                        <td className="mono" style={{ whiteSpace: 'nowrap' }}>
+                          {k.bidNo || <span className="faint">未填</span>}
+                          {n > 1 && <span className="cost-share" title="同一次招标分签的合同共用这个编号">共用 ×{n}</span>}
+                        </td>
+                        <td>
+                          <div className="cost-name">{k.name || '未命名合同包'}</div>
+                        </td>
+                        <td className="faint" style={{ fontSize: 12 }}>{p.name}</td>
+                        <td>
+                          {co(k.companyId) || <span className="faint">—</span>}
+                          {k.nature && <div className="faint cost-sub">{k.nature}</div>}
+                        </td>
+                        <td className="ctr">{k.category || '—'}</td>
+                        <td className="num" style={{ whiteSpace: 'nowrap' }}>
+                          {hasAmt(k.contract) ? fmt(Number(k.contract!.amount), 2) : '—'}
+                          {hasAmt(k.contract) && <span className="faint cost-cur"> {k.contract!.currency || 'USD'}</span>}
+                        </td>
+                        <td className="ctr">{k.signDate || '—'}</td>
+                        <td className="mono" style={{ fontSize: 12 }}>{k.contractNo || '—'}</td>
+                        <td className="ctr">
+                          <span className={'tag ' + statusCls(k.status)}>{k.status || '—'}</span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              )
+            })}
+          </table>
+        </div>
+      )}
+      <div className="cost-foot faint">合同额按原币显示（各合同币种不同，不做合计）。招标编号、国别在各项目的合同包里修改。</div>
+    </div>
+  )
+}
+
+/** 成本对比里的一行：名字（品类、招标方式、单位、合同号）、金额、节超；超支的写原因，没写就提示 */
+function CostRow({ r, disp, showRate, hasIncome, grouped, onEdit }: { r: any; disp: string; showRate: boolean; hasIncome: boolean; grouped: boolean; onEdit: () => void }) {
+  const { data } = useApp()
+  const k: Pkg = r.k
+  const over = r.diff !== null && r.diff < 0
+  const co = data.companies.find((c) => c.id === k.companyId)?.name || ''
+  const orig = (m?: Money) => (hasAmt(m) && m!.currency !== disp ? `${fmt(Number(m!.amount))} ${m!.currency}` : '')
+  return (
+    <tr className="click" onClick={onEdit}>
+      <td>
+        <div className="cost-name">
+          {k.name || '未命名合同包'}
+          {showRate && r.rs && (
+            <span className={'cost-rate-tag' + (k.rateSetId && r.rs.id === k.rateSetId ? ' own' : '')} title={(k.rateSetId && r.rs.id === k.rateSetId ? '这个合同包选的汇率' : '没单独选，用默认方案') + '：' + setLabel(r.rs) + '\n' + Object.entries<number>(r.rs.rates).map(([c, v]) => `1 USD = ${v} ${c}`).join('\n')}>
+              {(r.rs.date || '').slice(5) || '未填日期'} 汇率
+            </span>
+          )}
+        </div>
+        <div className="faint cost-sub">
+          {!grouped && k.category && <span className="cost-cat">{k.category}</span>}
+          {[k.method, co, k.contractNo, k.signDate].filter(Boolean).join(' · ') || ' '}
+        </div>
+        {over && (
+          <div className={'cost-reason' + (k.reason ? '' : ' no-reason')} title={k.reason || ''}>
+            {k.reason ? '超支原因：' + k.reason : '⚠ 还没写超支原因'}
+          </div>
+        )}
+      </td>
+      <td style={{ textAlign: 'center' }}>
+        <span className={'tag ' + statusCls(k.status)}>{k.status || '—'}</span>
+      </td>
+      <td className="num">
+        {fmt(r.b)}
+        {orig(k.budget) && <div className="faint cost-sub">{orig(k.budget)}</div>}
+      </td>
+      <td className="num">
+        {fmt(r.c)}
+        {orig(k.contract) && <div className="faint cost-sub">{orig(k.contract)}</div>}
+      </td>
+      <td>
+        {r.ratio !== null ? (
+          <div className="cost-bar" title={`签订价是责任成本的 ${pct(r.ratio)}`}>
+            <div className="cost-bar-track">
+              <div className={'cost-bar-fill' + (over ? ' over' : '')} style={{ width: Math.min(100, (r.ratio / 1.25) * 100) + '%' }} />
+              <div className="cost-bar-mark" style={{ left: (1 / 1.25) * 100 + '%' }} />
+            </div>
+            <span className={over ? 'red-text' : ''}>{pct(r.ratio)}</span>
+          </div>
+        ) : (
+          <span className="faint" style={{ fontSize: 12 }}>{hasAmt(k.contract) ? '缺汇率' : '未签'}</span>
+        )}
+      </td>
+      <td className={'num ' + (r.diff === null ? '' : over ? 'red-text' : 'green-text')}>
+        {r.diff === null ? '—' : (over ? '超 ' : '省 ') + fmt(Math.abs(r.diff))}
+        {r.diffRate !== null && <div className="cost-sub">{pct(Math.abs(r.diffRate))}</div>}
+      </td>
+      {hasIncome && <td className={'num ' + (r.margin === null ? '' : r.margin < 0 ? 'red-text' : '')}>{pct(r.margin)}</td>}
+      <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+        <FileChips files={k.files || []} compact />
+      </td>
+    </tr>
   )
 }
 
@@ -511,7 +883,7 @@ function MoneyInput({ value, onChange, currencies }: { value?: Money; onChange: 
   )
 }
 
-function PkgDialog({ pkg, project, currencies, sets, defaultSet, perPkg, onSave, onClose, onDelete }: { pkg: Pkg; project: any; currencies: string[]; sets: RateSet[]; defaultSet: RateSet | null; perPkg: boolean; onSave: (k: Pkg) => void; onClose: () => void; onDelete?: () => void }) {
+function PkgDialog({ pkg, project, country, peers, currencies, sets, defaultSet, perPkg, onSave, onClose, onDelete }: { pkg: Pkg; project: any; country: string; peers: { k: Pkg; projectId: string; projectName: string }[]; currencies: string[]; sets: RateSet[]; defaultSet: RateSet | null; perPkg: boolean; onSave: (k: Pkg) => void; onClose: () => void; onDelete?: () => void }) {
   const { data, toast } = useApp()
   const [k, setK] = useState<Pkg>(pkg)
   const [picking, setPicking] = useState(false)
@@ -537,16 +909,58 @@ function PkgDialog({ pkg, project, currencies, sets, defaultSet, perPkg, onSave,
     setPicking(false)
     if (out.length) addFiles(out)
   }
-  // 选了询价、还没填签订价时，带出定标单位
+  // 选了询价、还没填单位时，带出定标单位
   useEffect(() => {
     const x = inqs.find((i) => i.id === k.inquiryId)
     if (x?.awardedCompanyId && !k.companyId) set({ companyId: x.awardedCompanyId })
   }, [k.inquiryId])
+  /** 从关联的询价带入：发标日期（最早发出）、开标（回价截止）、定标单位及其最新报价（作签订价参考，只填空着的） */
+  const fromInquiry = () => {
+    const x = inqs.find((i) => i.id === k.inquiryId)
+    if (!x) return
+    const sends = (x.sends || []).map((s: any) => s.date).filter(Boolean).sort()
+    const vdates = (x.versions || []).map((v: any) => v.date).filter(Boolean).sort()
+    const p: Partial<Pkg> = {}
+    if (!k.tenderDate) p.tenderDate = sends[0] || vdates[0] || x.startDate || undefined
+    if (!k.openDate && x.deadline) p.openDate = x.deadline
+    if (!k.companyId && x.awardedCompanyId) p.companyId = x.awardedCompanyId
+    const cid = k.companyId || x.awardedCompanyId
+    const q = [...(x.quotes || [])].filter((q: any) => q.companyId === cid).sort((a: any, b: any) => (Number(a.round) || 0) - (Number(b.round) || 0) || String(a.date).localeCompare(String(b.date))).pop()
+    if (q && !hasAmt(k.contract) && Number(q.amount) > 0) p.contract = { amount: Number(q.amount), currency: q.currency || 'USD' }
+    const n = Object.keys(p).length
+    if (!n) return toast('没有可以带入的（已填的不会覆盖）')
+    set(p)
+    toast(`已从询价带入 ${n} 项，请核对`)
+  }
+  // 同国别其他合同已用的编号：同号的合同（共用），以及每种前缀的下一个号
+  const others = peers.filter((x) => x.k.id !== k.id)
+  const same = k.bidNo ? others.filter((x) => x.k.bidNo === k.bidNo) : []
+  const nextNos = (() => {
+    const by = new Map<string, { num: number; width: number; last: string }>()
+    for (const x of others) {
+      const s = splitNo(x.k.bidNo!)
+      if (!s) continue
+      const cur = by.get(s.prefix)
+      const last = x.k.signDate || x.k.awardDate || x.k.tenderDate || ''
+      if (!cur || s.num > cur.num) by.set(s.prefix, { num: s.num, width: s.width, last: cur && cur.last > last ? cur.last : last })
+      else if (last > cur.last) cur.last = last
+    }
+    return [...by.entries()]
+      .sort((a, b) => b[1].last.localeCompare(a[1].last))
+      .slice(0, 4)
+      .map(([pre, v]) => pre + String(v.num + 1).padStart(v.width, '0'))
+  })()
+  const sec = (t: string, sub?: string) => (
+    <div className="pkg-sec">
+      {t}
+      {sub && <span className="faint">{sub}</span>}
+    </div>
+  )
 
   return (
     <Modal
       title={pkg.name ? '编辑合同包' : '新增合同包'}
-      width={600}
+      width={680}
       onClose={onClose}
       footer={
         <>
@@ -562,12 +976,18 @@ function PkgDialog({ pkg, project, currencies, sets, defaultSet, perPkg, onSave,
     >
       <div className="pkg-form">
         <div className="field" style={{ gridColumn: '1 / -1' }}>
-          <label>合同包名称</label>
+          <label>合同包名称（工程名称）</label>
           <input className="input" autoFocus value={k.name} placeholder="如：电气工程分包、阀门附件采购" onChange={(e) => set({ name: e.target.value })} />
         </div>
         <div className="field">
-          <label>分包 / 供货单位</label>
-          <CompanyPicker value={k.companyId} onChange={(id) => set({ companyId: id })} />
+          <label>品类</label>
+          <div className="chip-pick">
+            {CATS.map((c) => (
+              <button key={c} type="button" className={k.category === c ? 'on' : ''} onClick={() => set({ category: k.category === c ? '' : c })}>
+                {c}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="field">
           <label>状态</label>
@@ -578,40 +998,38 @@ function PkgDialog({ pkg, project, currencies, sets, defaultSet, perPkg, onSave,
           </select>
         </div>
         <div className="field">
-          <label>合同编号</label>
-          <input className="input" value={k.contractNo || ''} onChange={(e) => set({ contractNo: e.target.value })} />
+          <label>中标单位</label>
+          <CompanyPicker value={k.companyId} onChange={(id) => set({ companyId: id })} />
         </div>
         <div className="field">
-          <label>签订日期</label>
-          <input className="input" type="date" value={k.signDate || ''} onChange={(e) => set({ signDate: e.target.value })} />
+          <label>单位性质</label>
+          <select className="input" value={k.nature || ''} onChange={(e) => set({ nature: e.target.value })}>
+            <option value="">—</option>
+            {NATURES.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
         </div>
+
+        {sec('金额', '各自选币种，按汇率方案换算')}
         <div className="field money">
           <label>责任成本</label>
           <MoneyInput value={k.budget} currencies={currencies} onChange={(m) => set({ budget: m })} />
         </div>
         <div className="field money">
-          <label>签订价（实际招标成本）</label>
+          <label>签订价（分包合同额）</label>
           <MoneyInput value={k.contract} currencies={currencies} onChange={(m) => set({ contract: m })} />
         </div>
         <div className="field money">
           <label>
-            对应收入 <span className="faint">（可选，对业主的合同额，用来算毛利）</span>
+            对应收入 <span className="faint">（可选，算毛利）</span>
           </label>
           <MoneyInput value={k.income} currencies={currencies} onChange={(m) => set({ income: m })} />
         </div>
-        <div className="field">
-          <label>来自哪条询价 <span className="faint">（可选）</span></label>
-          <select className="input" value={k.inquiryId || ''} onChange={(e) => set({ inquiryId: e.target.value || null })}>
-            <option value="">不关联</option>
-            {inqs.map((x) => (
-              <option key={x.id} value={x.id}>{x.name}</option>
-            ))}
-          </select>
-        </div>
-        {sets.length > 1 && (
+        {sets.length > 1 ? (
           <div className="field">
             <label>
-              换算汇率 <span className="faint">{perPkg ? '（如签订时的汇率）' : '（项目切到「各合同包用自己的汇率」时生效）'}</span>
+              换算汇率 <span className="faint">{perPkg ? '（如签订时的汇率）' : '（切到「各合同包用自己的汇率」时生效）'}</span>
             </label>
             <select className="input" value={k.rateSetId || ''} onChange={(e) => set({ rateSetId: e.target.value || null })}>
               <option value="">默认方案{defaultSet ? `（${setLabel(defaultSet)}）` : ''}</option>
@@ -620,9 +1038,84 @@ function PkgDialog({ pkg, project, currencies, sets, defaultSet, perPkg, onSave,
               ))}
             </select>
           </div>
+        ) : (
+          <div />
         )}
+
+        {sec('招采过程', '填了日期会自动算招采时效、合同时效')}
+        <div className="field">
+          <label>招标方式</label>
+          <select className="input" value={k.method || ''} onChange={(e) => set({ method: e.target.value })}>
+            <option value="">—</option>
+            {METHODS.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>
+            招标编号 <span className="faint">{country ? `（${country}所有合同连续编号）` : '（先在表头设国别）'}</span>
+          </label>
+          <input className="input" value={k.bidNo || ''} placeholder={nextNos[0] ? '下一个：' + nextNos[0] : ''} onChange={(e) => set({ bidNo: e.target.value.trim() })} />
+          {!k.bidNo && nextNos.length > 0 && (
+            <div className="bid-hint">
+              下一个可用：
+              {nextNos.map((n) => (
+                <button key={n} type="button" onClick={() => set({ bidNo: n })}>{n}</button>
+              ))}
+            </div>
+          )}
+          {k.bidNo && same.length > 0 && (
+            <div className="bid-hint warn" title={same.map((x) => `${x.projectName} · ${x.k.name}`).join('\n')}>
+              这个编号也用在：{same.map((x) => (x.projectId === project.id ? '' : x.projectName + ' · ') + x.k.name).join('、')}（同一次招标分签多个合同可以共用）
+            </div>
+          )}
+        </div>
+        <div className="field">
+          <label>来自哪条询价</label>
+          <div className="row" style={{ gap: 6 }}>
+            <select className="input" style={{ flex: 1, minWidth: 0 }} value={k.inquiryId || ''} onChange={(e) => set({ inquiryId: e.target.value || null })}>
+              <option value="">不关联</option>
+              {inqs.map((x) => (
+                <option key={x.id} value={x.id}>{x.name}</option>
+              ))}
+            </select>
+            <button className="btn small" disabled={!k.inquiryId} title="带入发标日期、开标日期、定标单位和它的报价（只填空着的）" onClick={fromInquiry}>
+              带入
+            </button>
+          </div>
+        </div>
+        <div className="field">
+          <label>经办人</label>
+          <input className="input" value={k.handler || ''} onChange={(e) => set({ handler: e.target.value })} />
+        </div>
+        <div className="pkg-dates">
+          {(
+            [
+              ['tenderDate', '招标文件发出'],
+              ['openDate', '开标'],
+              ['awardDate', '定标审批完成'],
+              ['signDate', '合同签订']
+            ] as const
+          ).map(([f, l]) => (
+            <div key={f} className="field">
+              <label>{l}</label>
+              <input className="input" type="date" value={(k as any)[f] || ''} onChange={(e) => set({ [f]: e.target.value } as any)} />
+            </div>
+          ))}
+          <div className="pkg-gaps faint">
+            {dayGap(k.tenderDate, k.awardDate) !== null && <span>招采时效 {dayGap(k.tenderDate, k.awardDate)} 天</span>}
+            {dayGap(k.awardDate, k.signDate) !== null && <span>合同时效 {dayGap(k.awardDate, k.signDate)} 天</span>}
+          </div>
+        </div>
         <div className="field" style={{ gridColumn: '1 / -1' }}>
-          <label>引用文件（合同、结算单、责任成本测算表…）</label>
+          <label>合同编号</label>
+          <input className="input" value={k.contractNo || ''} onChange={(e) => set({ contractNo: e.target.value })} />
+        </div>
+
+        {sec('文件与说明')}
+        <div className="field" style={{ gridColumn: '1 / -1' }}>
+          <label>引用文件（合同、定标报告、责任成本测算表…）</label>
           <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
             <button className="btn small" onClick={() => setPicking(true)}>🔗 从项目或资料库选择</button>
             <button
@@ -638,8 +1131,14 @@ function PkgDialog({ pkg, project, currencies, sets, defaultSet, perPkg, onSave,
           <FileChips files={k.files || []} onRemove={(i) => set({ files: (k.files || []).filter((_, j) => j !== i) })} />
         </div>
         <div className="field" style={{ gridColumn: '1 / -1' }}>
+          <label>
+            超支原因分析 <span className="faint">（签订价超过责任成本时填，会显示在表里、导出到 Excel）</span>
+          </label>
+          <textarea className="input" rows={2} value={k.reason || ''} placeholder="如：材料涨价、工期压缩、属地政策要求…" onChange={(e) => set({ reason: e.target.value })} />
+        </div>
+        <div className="field" style={{ gridColumn: '1 / -1' }}>
           <label>备注</label>
-          <textarea className="input" rows={2} value={k.note || ''} placeholder="变更、扣款、结算说明等" onChange={(e) => set({ note: e.target.value })} />
+          <textarea className="input" rows={2} value={k.note || ''} placeholder="变更、扣款、结算说明等（不导出）" onChange={(e) => set({ note: e.target.value })} />
         </div>
       </div>
       {picking && <RefPicker allowDirs title="引用文件 / 文件夹" okLabel="引用" onClose={() => setPicking(false)} onPick={fromPicker} />}
