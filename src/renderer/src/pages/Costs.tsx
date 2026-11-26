@@ -35,7 +35,7 @@ type Pkg = {
 }
 
 export const CATS = ['劳务', '物资', '设备', '专业分包', '服务', '其他']
-const METHODS = ['公开招标', '邀请招标', '议标', '竞争性谈判', '直接委托', '增补合同']
+const METHODS = ['公开招标', '邀请招标', '紧急招标', '议标', '竞争性谈判', '直接委托', '增补合同']
 const NATURES = ['中资单位', '属地单位', '第三国单位']
 /** 两个日期之间的天数，缺一个就是 null */
 const fullDate = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s)
@@ -98,7 +98,10 @@ export default function Costs({ focusId }: { focusId?: string }) {
 
   // 左侧：已建立成本表的项目，按进行中的优先
   const projOf = (id: string) => data.projects.find((p) => p.id === id)
-  const list = recs.map((r) => ({ r, p: projOf(r.projectId) })).filter((x) => x.p)
+  const list = recs
+    .map((r) => ({ r, p: projOf(r.projectId) }))
+    .filter((x) => x.p)
+    .sort((a, b) => Number(b.p!.status === '进行中') - Number(a.p!.status === '进行中'))
   const candidates = data.projects.filter((p) => !recs.some((r) => r.projectId === p.id))
 
   const addProject = async (projectId: string) => {
@@ -276,7 +279,7 @@ function CostDetail({ rec, allRecs, openPkgId, onOpened, onRemove }: { rec: Cost
         .filter((g) => g.rows.length)
     : [{ name: '', rows }]
   const avg = (xs: (number | null)[]) => {
-    const v = xs.filter((x): x is number => x !== null)
+    const v = xs.filter((x): x is number => x !== null && x >= 0) // 日期填反的不算
     return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null
   }
   const procAvg = avg(rows.map((r) => r.procDays))
@@ -299,7 +302,7 @@ function CostDetail({ rec, allRecs, openPkgId, onOpened, onRemove }: { rec: Cost
   const totMargin = tot.profitIncome ? tot.profit / tot.profitIncome : null
   const hasIncome = rows.some((r) => hasAmt(r.k.income))
   const co = (id?: string | null) => data.companies.find((c) => c.id === id)?.name || ''
-  const orig = (m?: Money) => (hasAmt(m) && m!.currency !== disp ? `${fmt(Number(m!.amount))} ${m!.currency}` : '')
+  const signedN = pkgs.filter((k) => SIGNED.includes(k.status || '')).length
 
   return (
     <div className="cost-page">
@@ -316,7 +319,7 @@ function CostDetail({ rec, allRecs, openPkgId, onOpened, onRemove }: { rec: Cost
               ))}
             </select>
             {' · '}
-            {pkgs.length} 个合同包 · 已签 {signed.length} 个{tot.over ? ` · ` : ''}
+            {pkgs.length} 个合同包 · 已签约 {signedN} 个{tot.over ? ` · ` : ''}
             {tot.over > 0 && <span className="red-text">{tot.over} 个超出责任成本</span>}
             {perPkg && sameRate && rows[0]?.rs && <span title={setLabel(rows[0].rs)}> · 各合同包都按 {(rows[0].rs.date || '').slice(5)} 汇率</span>}
           </div>
@@ -344,7 +347,7 @@ function CostDetail({ rec, allRecs, openPkgId, onOpened, onRemove }: { rec: Cost
           </label>
         )}
         <button className={'btn' + (missing.length ? ' warn-btn' : '')} onClick={() => setRateOpen(true)} title="保存几套汇率（可备注），一键切换">
-          {missing.length ? `缺 ${missing.join('、')} 汇率` : sets.length > 1 ? '汇率方案…' : active ? `汇率 · ${setLabel(active)}` : '汇率未确认'}
+          {missing.length ? `缺 ${missing.join('、')} 汇率` : sets.length > 1 ? '汇率方案…' : active ? `汇率 · ${setLabel(active)}` : '汇率方案…'}
         </button>
         <button className="btn" disabled={!pkgs.length} onClick={() => api.call('cost:export', rec.id).catch((e: any) => toast(e.message || String(e)))} title="按当前币种和汇率方案导出 Excel">
           导出 Excel
@@ -355,13 +358,13 @@ function CostDetail({ rec, allRecs, openPkgId, onOpened, onRemove }: { rec: Cost
       </div>
 
       <div className="cost-kpis">
-        <Kpi label="责任成本合计" value={fmt(tot.budget)} unit={disp} />
-        <Kpi label="已签合同合计" value={fmt(tot.contract)} unit={disp} sub={`对应责任成本 ${fmt(tot.signedBudget)}`} />
+        <Kpi label="责任成本合计" value={rows.some((r) => r.b !== null) ? fmt(tot.budget) : '—'} unit={disp} sub={rows.some((r) => r.b !== null) ? `${rows.filter((r) => r.b !== null).length} 个合同包已填` : '合同包里填「责任成本」'} />
+        <Kpi label="签订价合计" value={rows.some((r) => r.c !== null) ? fmt(tot.contract, 2) : '—'} unit={disp} sub={signed.length ? `${signed.length} 个可对比 · 对应责任成本 ${fmt(tot.signedBudget)}` : rows.some((r) => r.c !== null) ? '缺责任成本，暂不能对比' : '还没有填签订价'} />
         <Kpi
-          label={tot.diff >= 0 ? '节约（责任成本 − 签订价）' : '超支（签订价 − 责任成本）'}
-          value={fmt(Math.abs(tot.diff))}
+          label={!signed.length ? '节超' : tot.diff >= 0 ? '节约（责任成本 − 签订价）' : '超支（签订价 − 责任成本）'}
+          value={signed.length ? fmt(Math.abs(tot.diff)) : '—'}
           unit={disp}
-          sub={totDiffRate === null ? '已签合同包按责任成本计' : `${tot.diff >= 0 ? '节约率' : '超支率'} ${pct(Math.abs(totDiffRate))}`}
+          sub={totDiffRate === null ? '责任成本和签订价都填了才能对比' : `${tot.diff >= 0 ? '节约率' : '超支率'} ${pct(Math.abs(totDiffRate))}`}
           tone={signed.length ? (tot.diff >= 0 ? 'good' : 'bad') : undefined}
         />
         {hasIncome ? (
@@ -428,7 +431,7 @@ function CostDetail({ rec, allRecs, openPkgId, onOpened, onRemove }: { rec: Cost
                           {g.name} <span className="faint">{g.rows.length} 个</span>
                         </td>
                         <td className="num">{fmt(g.rows.some((r) => r.b !== null) ? g.rows.reduce((s, r) => s + (r.b ?? 0), 0) : null)}</td>
-                        <td className="num">{fmt(g.rows.some((r) => r.c !== null) ? g.rows.reduce((s, r) => s + (r.c ?? 0), 0) : null)}</td>
+                        <td className="num">{fmt(g.rows.some((r) => r.c !== null) ? g.rows.reduce((s, r) => s + (r.c ?? 0), 0) : null, 2)}</td>
                         <td>{gb ? <span className="faint">{pct(gc / gb)}</span> : null}</td>
                         <td className={'num ' + (gb ? (gd < 0 ? 'red-text' : 'green-text') : '')}>{gb ? (gd < 0 ? '超 ' : '省 ') + fmt(Math.abs(gd)) : '—'}</td>
                         {hasIncome && <td />}
@@ -445,9 +448,9 @@ function CostDetail({ rec, allRecs, openPkgId, onOpened, onRemove }: { rec: Cost
                 <tr>
                   <td>合计（{disp}）</td>
                   <td />
-                  <td className="num">{fmt(tot.budget)}</td>
-                  <td className="num">{fmt(tot.contract)}</td>
-                  <td>{tot.signedBudget ? <span className="faint" style={{ fontSize: 12 }}>已签部分 {pct(tot.contract / (tot.signedBudget || 1))}</span> : null}</td>
+                  <td className="num">{rows.some((r) => r.b !== null) ? fmt(tot.budget) : '—'}</td>
+                  <td className="num">{rows.some((r) => r.c !== null) ? fmt(tot.contract, 2) : '—'}</td>
+                  <td>{tot.signedBudget ? <span className="faint" style={{ fontSize: 12 }} title="只算责任成本和签订价都有的合同包">可对比部分 {pct(sum((r) => r.c, (r) => r.c !== null && r.b !== null) / tot.signedBudget)}</span> : null}</td>
                   <td className={'num ' + (tot.diff < 0 ? 'red-text' : 'green-text')}>{signed.length ? (tot.diff < 0 ? '超 ' : '省 ') + fmt(Math.abs(tot.diff)) : '—'}</td>
                   {hasIncome && <td className="num">{pct(totMargin)}</td>}
                   <td />
@@ -493,8 +496,8 @@ function CostDetail({ rec, allRecs, openPkgId, onOpened, onRemove }: { rec: Cost
                       <td className="ctr">{r.k.openDate || '—'}</td>
                       <td className="ctr">{r.k.awardDate || '—'}</td>
                       <td className="ctr">{r.k.signDate || '—'}</td>
-                      <td className={'num' + (r.procDays !== null && r.procDays > 30 ? ' amber-text' : '')}>{r.procDays === null ? '—' : r.procDays + ' 天'}</td>
-                      <td className={'num' + (r.contractDays !== null && r.contractDays > 15 ? ' amber-text' : '')}>{r.contractDays === null ? '—' : r.contractDays + ' 天'}</td>
+                      <td className={'num' + (r.procDays !== null && r.procDays < 0 ? ' red-text' : r.procDays !== null && r.procDays > 30 ? ' amber-text' : '')} title={r.procDays !== null && r.procDays < 0 ? '定标日期早于发标日期，请检查' : ''}>{r.procDays === null ? '—' : r.procDays + ' 天'}</td>
+                      <td className={'num' + (r.contractDays !== null && r.contractDays < 0 ? ' red-text' : r.contractDays !== null && r.contractDays > 15 ? ' amber-text' : '')} title={r.contractDays !== null && r.contractDays < 0 ? '签订日期早于定标日期，请检查' : ''}>{r.contractDays === null ? '—' : r.contractDays + ' 天'}</td>
                       <td className="ctr">{r.k.handler || '—'}</td>
                     </tr>
                   ))}
@@ -521,12 +524,16 @@ function CostDetail({ rec, allRecs, openPkgId, onOpened, onRemove }: { rec: Cost
       {rateOpen && (
         <RateDialog
           sets={sets}
+          usage={Object.fromEntries(sets.map((s) => [s.id, pkgs.filter((k) => k.rateSetId === s.id).map((k) => k.name)]))}
           activeId={active?.id || null}
           need={[...new Set([...used.filter((c) => c !== 'USD'), ...(disp !== 'USD' ? [disp] : [])])]}
           all={sup.currencies.filter((c) => c !== 'USD')}
           onSave={(list, id) => {
             const a = list.find((s) => s.id === id) || list[0]
-            save({ rateSets: list, rateSetId: a?.id, rates: a?.rates || {}, rateDate: a?.date })
+            // 删掉的方案：选了它的合同包改回默认
+            const ids = new Set(list.map((s) => s.id))
+            const fixed = pkgs.some((k) => k.rateSetId && !ids.has(k.rateSetId)) ? pkgs.map((k) => (k.rateSetId && !ids.has(k.rateSetId) ? { ...k, rateSetId: null } : k)) : undefined
+            save({ rateSets: list, rateSetId: a?.id, rates: a?.rates || {}, rateDate: a?.date, ...(fixed ? { packages: fixed } : {}) })
             setRateOpen(false)
           }}
           onClose={() => setRateOpen(false)}
@@ -680,7 +687,7 @@ function CostRow({ r, disp, showRate, hasIncome, grouped, onEdit }: { r: any; di
   const k: Pkg = r.k
   const over = r.diff !== null && r.diff < 0
   const co = data.companies.find((c) => c.id === k.companyId)?.name || ''
-  const orig = (m?: Money) => (hasAmt(m) && m!.currency !== disp ? `${fmt(Number(m!.amount))} ${m!.currency}` : '')
+  const orig = (m?: Money, d = 0) => (hasAmt(m) && m!.currency !== disp ? `${fmt(Number(m!.amount), d)} ${m!.currency}` : '')
   return (
     <tr className="click" onClick={onEdit}>
       <td>
@@ -710,8 +717,8 @@ function CostRow({ r, disp, showRate, hasIncome, grouped, onEdit }: { r: any; di
         {orig(k.budget) && <div className="faint cost-sub">{orig(k.budget)}</div>}
       </td>
       <td className="num">
-        {fmt(r.c)}
-        {orig(k.contract) && <div className="faint cost-sub">{orig(k.contract)}</div>}
+        {fmt(r.c, 2)}
+        {orig(k.contract) && <div className="faint cost-sub">{orig(k.contract, 2)}</div>}
       </td>
       <td>
         {r.ratio !== null ? (
@@ -723,7 +730,7 @@ function CostRow({ r, disp, showRate, hasIncome, grouped, onEdit }: { r: any; di
             <span className={over ? 'red-text' : ''}>{pct(r.ratio)}</span>
           </div>
         ) : (
-          <span className="faint" style={{ fontSize: 12 }}>{hasAmt(k.contract) ? '缺汇率' : '未签'}</span>
+          <span className="faint" style={{ fontSize: 12 }}>{!hasAmt(k.contract) ? '未签' : !hasAmt(k.budget) ? '缺责任成本' : '缺汇率'}</span>
         )}
       </td>
       <td className={'num ' + (r.diff === null ? '' : over ? 'red-text' : 'green-text')}>
@@ -756,7 +763,7 @@ function Kpi({ label, value, unit, sub, tone }: { label: string; value: string; 
  * 汇率一律写成「1 USD = ? 外币」。保存时选中的那套就是当前用来换算的。
  */
 type EditSet = { id: string; date: string; note: string; rates: Record<string, string> }
-function RateDialog({ sets, activeId, need, all, onSave, onClose }: { sets: RateSet[]; activeId: string | null; need: string[]; all: string[]; onSave: (list: RateSet[], activeId: string) => void; onClose: () => void }) {
+function RateDialog({ sets, activeId, need, all, usage, onSave, onClose }: { sets: RateSet[]; activeId: string | null; need: string[]; all: string[]; usage: Record<string, string[]>; onSave: (list: RateSet[], activeId: string) => void; onClose: () => void }) {
   const blank = (from?: EditSet): EditSet => ({ id: uid(), date: ymd(), note: '', rates: from ? { ...from.rates } : Object.fromEntries(need.map((c) => [c, ''])) })
   const [list, setList] = useState<EditSet[]>(() => {
     const l = sets.map((s) => ({ id: s.id === 'legacy' ? uid() : s.id, date: s.date || '', note: s.note || '', rates: Object.fromEntries([...new Set([...need, ...Object.keys(s.rates || {})])].map((c) => [c, s.rates?.[c] ? String(s.rates[c]) : ''])) }))
@@ -778,7 +785,8 @@ function RateDialog({ sets, activeId, need, all, onSave, onClose }: { sets: Rate
   }
   const del = () => {
     if (list.length <= 1) return
-    if (!confirm(`删除汇率方案「${setLabel({ ...s, rates: {} })}」？`)) return
+    const users = usage[s.id] || []
+    if (!confirm(`删除汇率方案「${setLabel({ ...s, rates: {} })}」？${users.length ? `\n\n有 ${users.length} 个合同包选了这套（${users.join('、')}），删除后它们改用默认方案。` : ''}`)) return
     const rest = list.filter((x) => x.id !== s.id)
     setList(rest)
     setCur(rest[0].id)
@@ -934,7 +942,8 @@ function PkgDialog({ pkg, project, country, peers, currencies, sets, defaultSet,
   }
   // 同国别其他合同已用的编号：同号的合同（共用），以及每种前缀的下一个号
   const others = peers.filter((x) => x.k.id !== k.id)
-  const same = k.bidNo ? others.filter((x) => x.k.bidNo === k.bidNo) : []
+  const bid = (k.bidNo || '').trim()
+  const same = bid ? others.filter((x) => (x.k.bidNo || '').trim() === bid) : []
   const nextNos = (() => {
     const by = new Map<string, { num: number; width: number; last: string }>()
     for (const x of others) {
@@ -970,7 +979,7 @@ function PkgDialog({ pkg, project, country, peers, currencies, sets, defaultSet,
             </button>
           )}
           <button className="btn" onClick={onClose}>取消</button>
-          <button className="btn primary" disabled={!k.name.trim()} onClick={() => onSave({ ...k, name: k.name.trim() })}>保存</button>
+          <button className="btn primary" disabled={!k.name.trim()} onClick={() => onSave({ ...k, name: k.name.trim(), bidNo: (k.bidNo || '').trim(), contractNo: (k.contractNo || '').trim() })}>保存</button>
         </>
       }
     >
@@ -1056,7 +1065,7 @@ function PkgDialog({ pkg, project, country, peers, currencies, sets, defaultSet,
           <label>
             招标编号 <span className="faint">{country ? `（${country}所有合同连续编号）` : '（先在表头设国别）'}</span>
           </label>
-          <input className="input" value={k.bidNo || ''} placeholder={nextNos[0] ? '下一个：' + nextNos[0] : ''} onChange={(e) => set({ bidNo: e.target.value.trim() })} />
+          <input className="input" value={k.bidNo || ''} placeholder={nextNos[0] ? '下一个：' + nextNos[0] : ''} onChange={(e) => set({ bidNo: e.target.value })} />
           {!k.bidNo && nextNos.length > 0 && (
             <div className="bid-hint">
               下一个可用：
@@ -1104,8 +1113,14 @@ function PkgDialog({ pkg, project, country, peers, currencies, sets, defaultSet,
             </div>
           ))}
           <div className="pkg-gaps faint">
-            {dayGap(k.tenderDate, k.awardDate) !== null && <span>招采时效 {dayGap(k.tenderDate, k.awardDate)} 天</span>}
-            {dayGap(k.awardDate, k.signDate) !== null && <span>合同时效 {dayGap(k.awardDate, k.signDate)} 天</span>}
+            {dayGap(k.tenderDate, k.awardDate) !== null && (
+              <span className={dayGap(k.tenderDate, k.awardDate)! < 0 ? 'red-text' : ''}>招采时效 {dayGap(k.tenderDate, k.awardDate)} 天{dayGap(k.tenderDate, k.awardDate)! < 0 ? '（定标早于发标，请检查）' : ''}</span>
+            )}
+            {dayGap(k.awardDate, k.signDate) !== null && (
+              <span className={dayGap(k.awardDate, k.signDate)! < 0 ? 'red-text' : ''}>合同时效 {dayGap(k.awardDate, k.signDate)} 天{dayGap(k.awardDate, k.signDate)! < 0 ? '（签订早于定标，请检查）' : ''}</span>
+            )}
+            {dayGap(k.tenderDate, k.openDate) !== null && dayGap(k.tenderDate, k.openDate)! < 0 && <span className="red-text">开标早于发标，请检查</span>}
+            {SIGNED.includes(k.status || '') && !k.signDate && <span>状态是「{k.status}」，还没填签订日期</span>}
           </div>
         </div>
         <div className="field" style={{ gridColumn: '1 / -1' }}>

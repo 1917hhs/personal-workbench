@@ -84,7 +84,7 @@ export function buildCostBook(store: Store, costId: string) {
     [0, 0, 0, n - 1],
     [1, 0, 1, n - 1]
   ]
-  const tot = { b: 0, c: 0, sb: 0, diff: 0, i: 0, pi: 0, profit: 0 }
+  const tot = { b: 0, c: 0, sb: 0, sc: 0, diff: 0, i: 0, pi: 0, profit: 0 }
   let missing = false
   pkgs.forEach((k, idx) => {
     const fx = makeFx(setOf(k)?.rates || {})
@@ -96,7 +96,7 @@ export function buildCostBook(store: Store, costId: string) {
     const profit = i !== null && c !== null ? i - c : null
     tot.b += b ?? 0
     tot.c += c ?? 0
-    if (diff !== null) (tot.sb += b!), (tot.diff += diff)
+    if (diff !== null) (tot.sb += b!), (tot.sc += c!), (tot.diff += diff)
     tot.i += i ?? 0
     if (profit !== null) (tot.pi += i!), (tot.profit += profit)
     const tone = diff === null ? undefined : diff < 0 ? C.red : C.green
@@ -139,8 +139,8 @@ export function buildCostBook(store: Store, costId: string) {
       { v: k.openDate || '', s: cell({ align: 'center' }) },
       { v: k.awardDate || '', s: cell({ align: 'center' }) },
       { v: k.signDate || '', s: cell({ align: 'center' }) },
-      { v: pd, s: cell({ align: 'center', color: pd !== null && pd > 30 ? C.amber : undefined }) },
-      { v: cd, s: cell({ align: 'center', color: cd !== null && cd > 15 ? C.amber : undefined }) },
+      { v: pd, s: cell({ align: 'center', color: pd !== null && pd < 0 ? C.red : pd !== null && pd > 30 ? C.amber : undefined }) },
+      { v: cd, s: cell({ align: 'center', color: cd !== null && cd < 0 ? C.red : cd !== null && cd > 15 ? C.amber : undefined }) },
       { v: k.handler || '', s: cell({ align: 'center' }) },
       { v: k.contractNo || '', s: cell() },
       { v: k.reason || '', s: cell({ wrap: true, color: diff !== null && diff < 0 ? C.red : undefined }) },
@@ -154,8 +154,8 @@ export function buildCostBook(store: Store, costId: string) {
     if (diff !== null) (g.sb += b!), (g.diff += diff)
     g.i += i ?? 0
     if (profit !== null) (g.pi += i!), (g.profit += profit)
-    if (pd !== null) g.pd.push(pd)
-    if (cd !== null) g.cd.push(cd)
+    if (pd !== null && pd >= 0) g.pd.push(pd) // 日期填反的不计入平均
+    if (cd !== null && cd >= 0) g.cd.push(cd)
   })
   // 合计
   const T = (extra: Style = {}) => ({ fill: C.total, bold: true, ...extra })
@@ -165,7 +165,7 @@ export function buildCostBook(store: Store, costId: string) {
     ...Array.from({ length: lead - 1 }, () => ({ v: null, s: cell(T()) })),
     { v: tot.b, s: money(T()) },
     { v: tot.c, s: money(T()) },
-    { v: tot.sb ? tot.c / tot.sb : null, s: pctS(T()) },
+    { v: tot.sb ? tot.sc / tot.sb : null, s: pctS(T()) },
     { v: tot.sb ? tot.diff : null, s: money(T({ color: totTone, numFmt: '#,##0.00;-#,##0.00' })) },
     { v: tot.sb ? tot.diff / tot.sb : null, s: pctS(T({ color: totTone, numFmt: '+0.0%;-0.0%;0.0%' })) },
     ...(hasIncome ? [{ v: tot.i, s: money(T()) }, { v: tot.pi ? tot.profit : null, s: money(T()) }, { v: tot.pi ? tot.profit / tot.pi : null, s: pctS(T()) }] : [])
@@ -174,7 +174,7 @@ export function buildCostBook(store: Store, costId: string) {
   rows.push(totalRow)
   merges.push([rows.length - 1, 0, rows.length - 1, lead - 1])
   const notes: string[] = []
-  if (tot.sb && tot.sb !== tot.b) notes.push(`「签订价 / 责任成本」和合计节超只算已签订价的合同包（对应责任成本 ${tot.sb.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${disp}）。`)
+  if (tot.sb && tot.sb !== tot.b) notes.push(`合计的「签订价 / 责任成本」和节超只算责任成本、签订价都填了的合同包（对应责任成本 ${tot.sb.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${disp}）。`)
   if (missing) notes.push('有币种缺汇率，对应金额没法换算，留空。')
   for (const t of notes) {
     rows.push([{ v: t, s: { color: C.faint, size: 9, italic: true } }])
