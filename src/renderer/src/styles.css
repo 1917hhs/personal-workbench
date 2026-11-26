@@ -406,6 +406,19 @@ table.tbl { width: 100%; border-collapse: collapse; background: var(--panel); }
 .todo-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .todo-line .title { flex: 1; min-width: 0; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
 .todo-detail { margin: 6px 0 4px 46px; }
+/* 窄栏：标题占满一行可换行，项目 / 日期 / 完成时间放第二行 */
+.todo.stacked { padding: 6px 8px; border-bottom: 1px solid var(--line); border-radius: 0; }
+.todo.stacked:last-child { border-bottom: 0; }
+.todo.stacked .todo-line { align-items: flex-start; }
+.todo.stacked .todo-line .check, .todo.stacked .todo-line .prio { margin-top: 3px; flex-shrink: 0; }
+.todo.stacked .todo-line .title { white-space: normal; overflow: visible; line-height: 1.5; word-break: break-word; }
+.todo.stacked .todo-line .star, .todo.stacked .todo-line .icon-btn { flex-shrink: 0; }
+.todo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 2px 0 0 46px; font-size: 12px; color: var(--text-3); }
+.todo-meta:empty { display: none; }
+.todo-meta .done-meta { flex-wrap: wrap; white-space: normal; gap: 2px 10px; }
+.todo-meta input[type='date'] { font-size: 12px; padding: 0; height: auto; }
+.todo.stacked .todo-detail, .todo.stacked .todo-files { margin-left: 46px; }
+.todo.stacked .todo-detail .row { flex-wrap: wrap; }
 .prio { width: 10px; height: 10px; border-radius: 50%; border: 0; padding: 0; flex-shrink: 0; cursor: pointer; }
 .due-chip { position: relative; display: inline-flex; }
 .done-meta { display: inline-flex; gap: 10px; font-size: 12px; white-space: nowrap; flex-shrink: 0; cursor: default; }

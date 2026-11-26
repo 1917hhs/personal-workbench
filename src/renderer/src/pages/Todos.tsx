@@ -182,7 +182,8 @@ function TodoFiles({ t, editing }: { t: any; editing: boolean }) {
   )
 }
 
-export function TodoRow({ t, showProject = true }: { t: any; showProject?: boolean }) {
+/** stacked：窄栏（如日历右侧）用，标题占满一行，项目 / 日期 / 完成时间放到下一行 */
+export function TodoRow({ t, showProject = true, stacked = false }: { t: any; showProject?: boolean; stacked?: boolean }) {
   const { data, saveTodo, deleteTodo, go, toast } = useApp()
   const [open, setOpen] = useState(false)
   const [picking, setPicking] = useState(false)
@@ -210,9 +211,19 @@ export function TodoRow({ t, showProject = true }: { t: any; showProject?: boole
   const prio = PRIORITIES.find((x) => x.id === (t.priority || 'normal'))!
   const toggle = (done: boolean) => setTodoDone(saveTodo, t, done)
 
+  const meta = (
+    <>
+      {showProject && p && (
+        <span className="tag click" onClick={() => go({ page: 'project', projectId: p.id })}>
+          {p.name}
+        </span>
+      )}
+      {t.done ? <DoneMeta t={t} /> : <DueChip due={t.due} done={t.done} onChange={(v) => saveTodo({ ...t, due: v })} />}
+    </>
+  )
   const cyclePrio = () => saveTodo({ ...t, priority: t.priority === 'high' ? 'low' : t.priority === 'low' ? 'normal' : 'high' })
   return (
-    <div className={'todo' + (t.done ? ' done' : '')}>
+    <div className={'todo' + (t.done ? ' done' : '') + (stacked ? ' stacked' : '')}>
       <div className="todo-line">
         <input type="checkbox" className="check" checked={!!t.done} onChange={(e) => toggle(e.target.checked)} />
         <button className="prio" title={`优先级：${prio.label}（点击切换）`} style={{ background: prio.color }} onClick={cyclePrio} />
@@ -233,15 +244,11 @@ export function TodoRow({ t, showProject = true }: { t: any; showProject?: boole
             </span>
           )}
         </span>
-        {showProject && p && (
-          <span className="tag click" onClick={() => go({ page: 'project', projectId: p.id })}>
-            {p.name}
-          </span>
-        )}
-        {t.done ? <DoneMeta t={t} /> : <DueChip due={t.due} done={t.done} onChange={(v) => saveTodo({ ...t, due: v })} />}
-        <button className={'star' + (t.starred ? ' on' : '')} onClick={() => saveTodo({ ...t, starred: !t.starred })}>★</button>
+        {!stacked && meta}
+        <button className={'star' + (t.starred ? ' on' : '')} title={t.starred ? '取消星标' : '加星标：重点待办，不管哪天到期都显示在工作台待办最前面，清单里也有「星标」分组'} onClick={() => saveTodo({ ...t, starred: !t.starred })}>★</button>
         <button className="icon-btn" title="删除" onClick={() => deleteTodo(t.id)}>×</button>
       </div>
+      {stacked && <div className="todo-meta">{meta}</div>}
       <TodoFiles t={t} editing={open} />
       {open && (
         <div className="todo-detail">

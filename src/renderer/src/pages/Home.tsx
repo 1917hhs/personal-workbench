@@ -74,7 +74,21 @@ export default function Home() {
   const today = ymd()
   const eow = endOfWeek(today)
   const g = groupTodos(todos)
-  const [todoTab, setTodoTab] = useState<'today' | 'week' | 'all'>('today')
+  // 待办卡片显示范围：今天 / 近 7 天 / 全部，记住上次选的
+  const [todoTab, setTodoTabRaw] = useState<'today' | 'week7' | 'all'>(() => {
+    try {
+      const v = localStorage.getItem('home.todoTab')
+      return v === 'week7' || v === 'all' ? v : 'today'
+    } catch {
+      return 'today'
+    }
+  })
+  const setTodoTab = (v: 'today' | 'week7' | 'all') => {
+    setTodoTabRaw(v)
+    try {
+      localStorage.setItem('home.todoTab', v)
+    } catch {}
+  }
   const [projTab, setProjTab] = useState<'attention' | 'active' | 'recent'>('attention')
   const [calMonth, setCalMonth] = useState(() => today.slice(0, 7))
   const [calSel, setCalSel] = useState(today)
@@ -104,7 +118,15 @@ export default function Home() {
 
   const weekTodos = todos.filter((t) => t.due && t.due >= addDays(eow, -6) && t.due <= eow)
   const weekDone = weekTodos.filter((t) => t.done).length
-  const todoList = todoTab === 'today' ? [...g.overdue, ...g.today] : todoTab === 'week' ? [...g.overdue, ...g.today, ...g.week] : [...g.overdue, ...g.today, ...g.week, ...g.later, ...g.none]
+  // 已逾期的始终算在内；星标待办不管日期都显示，并排在最前
+  const in7 = addDays(today, 6)
+  const openTodos = todos.filter((t) => !t.done)
+  const inTab = (t: any, tab: string) => tab === 'all' || !!t.starred || (!!t.due && (t.due <= today || (tab === 'week7' && t.due <= in7)))
+  const rank = (t: any) => (t.priority === 'high' ? 0 : t.priority === 'low' ? 2 : 1)
+  const todoList = openTodos
+    .filter((t) => inTab(t, todoTab))
+    .sort((a, b) => Number(!!b.starred) - Number(!!a.starred) || String(a.due || '9999').localeCompare(String(b.due || '9999')) || rank(a) - rank(b))
+  const tabCount = (tab: string) => openTodos.filter((t) => inTab(t, tab)).length
   const projList = projTab === 'attention' ? attention : projTab === 'active' ? active : [...projects].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 15)
   const openInq = inquiries.filter((x) => ['编制中', '询价中', '比价中'].includes(x.status))
   // 供应商入库资料：60 天内到期或已过期
@@ -198,11 +220,11 @@ export default function Home() {
             <div className="card-head">
               待办
               <span className="spacer" />
-              <Tabs value={todoTab} onChange={setTodoTab} options={[{ id: 'today', label: '今天' }, { id: 'week', label: '本周' }, { id: 'all', label: '全部' }]} />
+              <Tabs value={todoTab} onChange={setTodoTab} options={[{ id: 'today', label: `今天 ${tabCount('today')}` }, { id: 'week7', label: `近 7 天 ${tabCount('week7')}` }, { id: 'all', label: `全部 ${tabCount('all')}` }]} />
             </div>
             <div className="card-body scroll">
               <QuickAdd defaultDue={today} compact />
-              {todoList.length === 0 ? <div className="faint">没有要做的待办</div> : todoList.map((t) => <TodoRow key={t.id} t={t} />)}
+              {todoList.length === 0 ? <div className="faint">{todoTab === 'today' ? '今天没有要做的待办' : todoTab === 'week7' ? '近 7 天没有要做的待办' : '没有要做的待办'}</div> : todoList.map((t) => <TodoRow key={t.id} t={t} />)}
             </div>
           </div>
           <ProcurementCard />

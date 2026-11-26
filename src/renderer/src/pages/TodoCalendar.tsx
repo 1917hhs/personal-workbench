@@ -213,7 +213,7 @@ export default function TodoCalendar({ todos }: { todos: any[] }) {
             </div>
             {overdue.map((t) => (
               <div key={t.id} {...dragProps(t)}>
-                <TodoRow t={t} />
+                <TodoRow t={t} stacked />
               </div>
             ))}
           </div>
@@ -225,7 +225,7 @@ export default function TodoCalendar({ todos }: { todos: any[] }) {
           {selItems.length === 0 && <div className="faint" style={{ fontSize: 12, padding: '4px 2px' }}>没有待办</div>}
           {selItems.map(({ t }) => (
             <div key={t.id} {...(t.done ? {} : dragProps(t))}>
-              <TodoRow t={t} />
+              <TodoRow t={t} stacked />
             </div>
           ))}
           {selGhosts.length > 0 && (
@@ -242,7 +242,7 @@ export default function TodoCalendar({ todos }: { todos: any[] }) {
             </summary>
             {unplanned.map((t) => (
               <div key={t.id} {...dragProps(t)}>
-                <TodoRow t={t} />
+                <TodoRow t={t} stacked />
               </div>
             ))}
           </details>
