@@ -29,7 +29,8 @@ export default function Inquiries({ focusId }: { focusId?: string }) {
     .filter((x) => !st || x.status === st)
     .filter((x) => !pid || x.projectId === pid)
     .filter((x) => !q.trim() || [x.name, x.discipline, x.scope].join(' ').toLowerCase().includes(q.trim().toLowerCase()))
-    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+    // 星标的排在前面，其余按最近修改
+    .sort((a, b) => Number(!!b.starred) - Number(!!a.starred) || String(b.updatedAt).localeCompare(String(a.updatedAt)))
   // 没选的时候默认打开列表第一条，不让右边空着
   const cur = data.inquiries.find((x) => x.id === sel) || (sel === null ? list[0] : undefined)
 
@@ -68,6 +69,16 @@ export default function Inquiries({ focusId }: { focusId?: string }) {
             return (
               <div key={x.id} className={'tpl-item' + (cur?.id === x.id ? ' on' : '')} onClick={() => setSel(x.id)}>
                 <div className="row" style={{ gap: 6 }}>
+                  <button
+                    className={'star inq-star' + (x.starred ? ' on' : '')}
+                    title={x.starred ? '取消星标' : '加星标（排在最前，侧栏「星标询价」里点一下就能打开）'}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      saveItem('inquiries', { id: x.id, starred: !x.starred })
+                    }}
+                  >
+                    {x.starred ? '★' : '☆'}
+                  </button>
                   <b style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</b>
                   <span className={'tag ' + statusCls(x.status)}>{x.status}</span>
                 </div>

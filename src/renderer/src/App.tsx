@@ -229,6 +229,7 @@ export default function App() {
   const todoCount = todos.filter((t) => !t.done && t.due && t.due <= today).length
   const starred = projects.filter((p) => p.starred)
   const stars = ctx.data.stars || []
+  const starInq = ctx.data.inquiries.filter((x) => x.starred)
   const unstar = async (s: { projectId: string; rel: string }) => {
     await api.call('project:meta', s.projectId, s.rel, { starred: null })
     setData({ stars: await api.call('stars:list') })
@@ -284,9 +285,29 @@ export default function App() {
             <div key={s.projectId + s.rel} className={'side-proj side-star' + (s.exists ? '' : ' missing')} title={s.projectName + ' / ' + s.rel + (s.exists ? '' : '\n（找不到了：可能被删除或在软件外改了名）')}>
               <button className="side-star-main" onClick={() => go({ page: 'project', projectId: s.projectId, select: s.rel })}>
                 <span className="side-star-ico">{s.dir ? '📁' : '📄'}</span>
-                <span className="side-star-name">{s.name}</span>
+                <span className="side-star-text">
+                  <span className="side-star-name">{s.name}</span>
+                  <span className="side-star-sub">{s.projectName}</span>
+                </span>
               </button>
               <button className="side-star-x" title="取消星标" onClick={() => unstar(s)}>×</button>
+            </div>
+          ))}
+          {starInq.length > 0 && <div className="side-sub">星标询价</div>}
+          {starInq.map((x) => (
+            <div key={x.id} className="side-proj side-star" title={(projects.find((p) => p.id === x.projectId)?.name || '未关联项目') + ' · ' + x.status}>
+              <button className="side-star-main" onClick={() => go({ page: 'inquiries', inquiryId: x.id })}>
+                <span className="side-star-ico">
+                  <Icon name="inquiries" size={13} />
+                </span>
+                <span className="side-star-text">
+                  <span className="side-star-name">{x.name}</span>
+                  <span className="side-star-sub">
+                    {projects.find((p) => p.id === x.projectId)?.name || '未关联项目'} · {x.status}
+                  </span>
+                </span>
+              </button>
+              <button className="side-star-x" title="取消星标" onClick={() => ctx.saveItem('inquiries', { id: x.id, starred: false })}>×</button>
             </div>
           ))}
           <div style={{ marginTop: 'auto' }} />
