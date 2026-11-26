@@ -166,6 +166,8 @@ function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
     const save_ = b !== null && c !== null ? b - c : null // 节超：正数节约，负数超支
     return { k, rs, b, c, i, diff: save_, diffRate: save_ !== null && b ? save_ / b : null, ratio: b && c !== null ? c / b : null, profit: i !== null && c !== null ? i - c : null, margin: i && c !== null ? (i - c) / i : null }
   })
+  // 各合同包用的都是同一套时不逐行标，表头说一句就行
+  const sameRate = new Set(rows.map((r) => r.rs?.id)).size <= 1
   const sum = (f: (r: (typeof rows)[number]) => number | null, only?: (r: (typeof rows)[number]) => boolean) => rows.filter((r) => (only ? only(r) : true)).reduce((s, r) => s + (f(r) ?? 0), 0)
   const signed = rows.filter((r) => r.c !== null && r.b !== null)
   const tot = {
@@ -194,6 +196,7 @@ function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
           <div className="faint" style={{ fontSize: 12 }}>
             {pkgs.length} 个合同包 · 已签 {signed.length} 个{tot.over ? ` · ` : ''}
             {tot.over > 0 && <span className="red-text">{tot.over} 个超出责任成本</span>}
+            {perPkg && sameRate && rows[0]?.rs && <span title={setLabel(rows[0].rs)}> · 各合同包都按 {(rows[0].rs.date || '').slice(5)} 汇率</span>}
           </div>
         </div>
         <span className="spacer" />
@@ -279,9 +282,9 @@ function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
                     <td>
                       <div className="cost-name">
                         {r.k.name || '未命名合同包'}
-                        {perPkg && r.rs && (
-                          <span className={'cost-rate-tag' + (r.k.rateSetId && r.rs.id === r.k.rateSetId ? ' own' : '')} title={(r.k.rateSetId && r.rs.id === r.k.rateSetId ? '这个合同包选的汇率' : '没单独选，用默认方案') + '\n' + Object.entries(r.rs.rates).map(([c, v]) => `1 USD = ${v} ${c}`).join('\n')}>
-                            汇率 {setLabel(r.rs)}
+                        {perPkg && !sameRate && r.rs && (
+                          <span className={'cost-rate-tag' + (r.k.rateSetId && r.rs.id === r.k.rateSetId ? ' own' : '')} title={(r.k.rateSetId && r.rs.id === r.k.rateSetId ? '这个合同包选的汇率' : '没单独选，用默认方案') + '：' + setLabel(r.rs) + '\n' + Object.entries(r.rs.rates).map(([c, v]) => `1 USD = ${v} ${c}`).join('\n')}>
+                            {(r.rs.date || '').slice(5) || '未填日期'} 汇率
                           </span>
                         )}
                       </div>

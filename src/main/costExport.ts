@@ -72,7 +72,7 @@ export function buildCostBook(store: Store, costId: string) {
     ...(hasIncome ? [`对应收入（${disp}）`, `毛利（${disp}）`, '毛利率'] : []),
     '责任成本（原币）', '原币', '签订价（原币）', '原币',
     ...(hasIncome ? ['对应收入（原币）', '原币'] : []),
-    '关联询价', '引用文件', '备注'
+    '关联询价', '引用文件'
   ]
   const n = cols.length
   const rows: Cell[][] = [[{ v: `${pname} 履约成本分析`, s: S.title }], [{ v: subLine, s: S.sub }], cols.map((c) => ({ v: c, s: S.head }))]
@@ -128,8 +128,7 @@ export function buildCostBook(store: Store, costId: string) {
           ]
         : []),
       { v: inq(k.inquiryId), s: cell({ wrap: true }) },
-      { v: (k.files || []).map((f: any) => f.name).join('\n'), s: cell({ wrap: true }) },
-      { v: k.note || '', s: cell({ wrap: true }) }
+      { v: (k.files || []).map((f: any) => f.name).join('\n'), s: cell({ wrap: true }) }
     ])
   })
   // 合计
@@ -155,7 +154,7 @@ export function buildCostBook(store: Store, costId: string) {
     rows.push([{ v: t, s: { color: C.faint, size: 9, italic: true } }])
     merges.push([rows.length - 1, 0, rows.length - 1, n - 1])
   }
-  const base = [5, 26, 22, 14, 11, 8, ...(perPkg ? [18] : []), 15, 15, 10, 15, 9, ...(hasIncome ? [15, 15, 9] : []), 15, 6, 15, 6, ...(hasIncome ? [15, 6] : []), 18, 28, 26]
+  const base = [5, 26, 22, 14, 11, 8, ...(perPkg ? [18] : []), 15, 15, 10, 15, 9, ...(hasIncome ? [15, 15, 9] : []), 15, 6, 15, 6, ...(hasIncome ? [15, 6] : []), 18, 40]
   const sheets: Sheet[] = [
     {
       name: '合同包对比',
