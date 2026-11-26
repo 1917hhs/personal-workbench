@@ -67,7 +67,7 @@ export function ContactDialog({ contact, onClose, onSaved, companyId }: { contac
   )
 }
 
-export default function Contacts({ focusId, companyId }: { focusId?: string; companyId?: string }) {
+export default function Contacts({ focusId, companyId, companyTab, docId }: { focusId?: string; companyId?: string; companyTab?: 'docs'; docId?: string }) {
   const [tab, setTab] = useState<'people' | 'units'>(companyId ? 'units' : 'people')
   return (
     <>
@@ -76,7 +76,7 @@ export default function Contacts({ focusId, companyId }: { focusId?: string; com
         <Tabs value={tab} onChange={setTab} options={[{ id: 'people', label: '联系人' }, { id: 'units', label: '单位与供应商' }]} />
       </div>
       <div className="main" style={{ flex: 1, minHeight: 0 }}>
-        {tab === 'people' ? <People focusId={focusId} /> : <Companies focusId={companyId} />}
+        {tab === 'people' ? <People focusId={focusId} /> : <Companies focusId={companyId} focusTab={companyTab} focusDoc={docId} />}
       </div>
     </>
   )

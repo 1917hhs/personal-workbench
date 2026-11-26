@@ -321,7 +321,7 @@ export default function App() {
           {nav.page === 'projects' && <Projects />}
           {nav.page === 'project' && nav.projectId && <ProjectView key={nav.projectId + (nav.tab || '') + (nav.select || '')} id={nav.projectId} select={nav.select} tab={nav.tab} />}
           {nav.page === 'todos' && <Todos />}
-          {nav.page === 'contacts' && <Contacts key={(nav.contactId || '') + (nav.companyId || '')} focusId={nav.contactId} companyId={nav.companyId} />}
+          {nav.page === 'contacts' && <Contacts key={(nav.contactId || '') + (nav.companyId || '') + (nav.docId || '')} focusId={nav.contactId} companyId={nav.companyId} companyTab={nav.companyTab} docId={nav.docId} />}
           {nav.page === 'library' && <Library key={nav.libraryId || ''} focusId={nav.libraryId} />}
           {nav.page === 'kb' && <Knowledge key={nav.pageId || ''} pageId={nav.pageId} />}
           {nav.page === 'flows' && <Flows key={nav.flowId || ''} focusId={nav.flowId} />}

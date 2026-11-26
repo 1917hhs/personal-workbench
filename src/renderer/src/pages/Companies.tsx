@@ -271,7 +271,7 @@ function Stars({ value, onChange }: { value?: number; onChange: (n: number) => v
   )
 }
 
-export default function Companies({ focusId }: { focusId?: string }) {
+export default function Companies({ focusId, focusTab, focusDoc }: { focusId?: string; focusTab?: 'docs'; focusDoc?: string }) {
   const sup = useSup()
   const { data, saveItem } = useApp()
   const [type, setType] = useState<string>('全部')
@@ -375,16 +375,16 @@ export default function Companies({ focusId }: { focusId?: string }) {
           </>
         )}
       </div>
-      {cur && <CompanyPanel key={cur.id} c={cur} onClose={() => setSel(null)} />}
+      {cur && <CompanyPanel key={cur.id} c={cur} onClose={() => setSel(null)} initTab={cur.id === focusId ? focusTab : undefined} initDoc={cur.id === focusId ? focusDoc : undefined} />}
     </div>
   )
 }
 
-function CompanyPanel({ c, onClose }: { c: any; onClose: () => void }) {
+function CompanyPanel({ c, onClose, initTab, initDoc }: { c: any; onClose: () => void; initTab?: 'docs'; initDoc?: string }) {
   const sup = useSup()
   const { data, saveItem, deleteItem, go, toast } = useApp()
-  const [tab, setTab] = useState<'overview' | 'info' | 'contacts' | 'docs' | 'exp' | 'inq'>('overview')
-  const [openSub, setOpenSub] = useState<string | null>(null)
+  const [tab, setTab] = useState<'overview' | 'info' | 'contacts' | 'docs' | 'exp' | 'inq'>(initTab || 'overview')
+  const [openSub, setOpenSub] = useState<string | null>(initDoc || null)
   // 只传改动的字段：复制附件这类慢操作结束时，不会把这期间改的其他字段用旧值盖回去
   const save = (patch: any) => saveItem('companies', { id: c.id, ...patch })
   const isSup = c.unitType === '供应商'

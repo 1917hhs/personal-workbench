@@ -224,7 +224,7 @@ export default function ProcurementCard() {
                 </div>
                 {expiring.length === 0 && <div className="faint" style={{ fontSize: 12 }}>没有快到期的资质</div>}
                 {expiring.slice(0, 8).map(({ c, d }) => (
-                  <div key={c.id + d.id} className="proc-row proc-exp click" onClick={() => go({ page: 'contacts', companyId: c.id })}>
+                  <div key={c.id + d.id} className="proc-row proc-exp click" onClick={() => go({ page: 'contacts', companyId: c.id, companyTab: 'docs', docId: d.id })}>
                     <span className={'tag' + (d.expireDate < today ? ' red' : ' amber')}>{d.expireDate < today ? '已过期' : '将到期'}</span>
                     <span className="proc-name">{c.name}</span>
                     <span className="faint" style={{ fontSize: 12 }}>{d.name || d.type}</span>

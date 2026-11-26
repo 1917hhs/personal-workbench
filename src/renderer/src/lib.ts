@@ -205,6 +205,9 @@ export interface Nav {
   inquiryId?: string
   flowId?: string
   companyId?: string
+  /** 打开单位时直接切到哪个分页（如资质提醒点进来到「入库资料」），并展开哪份资料 */
+  companyTab?: 'docs'
+  docId?: string
   date?: string
   settingsSection?: string
   projectId?: string

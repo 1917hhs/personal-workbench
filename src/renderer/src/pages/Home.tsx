@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { addDays, api, daysBetween, endOfWeek, isActive, isArchived, needsAttention, stageOf, uid, useApp, ymd } from '../lib'
-import { Empty, StageDot, Tabs } from '../ui'
+import { Empty, Modal, StageDot, Tabs } from '../ui'
 import { groupTodos, QuickAdd, TodoRow } from './Todos'
 import { DeadlineTag } from './Projects'
 import { FocusStats } from './Focus'
@@ -109,8 +109,11 @@ export default function Home() {
   const openInq = inquiries.filter((x) => ['编制中', '询价中', '比价中'].includes(x.status))
   // 供应商入库资料：60 天内到期或已过期
   const in60 = addDays(today, 60)
-  const certs = data.companies.flatMap((c) => (c.docs || []).filter((x: any) => x.expireDate && x.expireDate <= in60))
-  const certsExpired = certs.filter((x: any) => x.expireDate < today).length
+  const certs = data.companies
+    .flatMap((c) => (c.docs || []).filter((x: any) => x.expireDate && x.expireDate <= in60).map((d: any) => ({ c, d })))
+    .sort((a, b) => a.d.expireDate.localeCompare(b.d.expireDate))
+  const certsExpired = certs.filter((x) => x.d.expireDate < today).length
+  const [certOpen, setCertOpen] = useState(false)
 
   const hour = new Date().getHours()
   const hello = hour < 6 ? '夜深了' : hour < 12 ? '上午好' : hour < 14 ? '中午好' : hour < 19 ? '下午好' : '晚上好'
@@ -153,8 +156,41 @@ export default function Home() {
         {stat('需要关注', attention.length, '两周内到期或已逾期', undefined, attention.length ? 'var(--warn)' : undefined)}
         {stat('待办', g.today.length + g.overdue.length, `今天 ${g.today.length} · 逾期 ${g.overdue.length} · 本周完成 ${weekDone}`, () => go({ page: 'todos' }), g.overdue.length ? 'var(--danger)' : undefined)}
         {stat('询价', openInq.length, `进行中 · 已定标 ${inquiries.filter((x) => x.status === '已定标').length}`, () => go({ page: 'inquiries' }))}
-        {stat('资质提醒', certs.length, certs.length ? `已过期 ${certsExpired} · 60 天内到期 ${certs.length - certsExpired}` : '供应商入库资料都在有效期内', () => go({ page: 'contacts' }), certsExpired ? 'var(--danger)' : certs.length ? 'var(--warn)' : undefined)}
+        {stat('资质提醒', certs.length, certs.length ? `已过期 ${certsExpired} · 60 天内到期 ${certs.length - certsExpired}` : '供应商入库资料都在有效期内', () => (certs.length ? setCertOpen(true) : go({ page: 'contacts', companyId: undefined })), certsExpired ? 'var(--danger)' : certs.length ? 'var(--warn)' : undefined)}
       </div>
+
+      {certOpen && (
+        <Modal title={`资质提醒：已过期 ${certsExpired} 份 · 60 天内到期 ${certs.length - certsExpired} 份`} width={720} onClose={() => setCertOpen(false)}>
+          <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>点一行打开该单位的「入库资料」，可以更新证书或上传新版。</div>
+          <div className="cert-list">
+            {certs.map(({ c, d }) => {
+              const n = daysBetween(today, d.expireDate)
+              return (
+                <div
+                  key={c.id + d.id}
+                  className="cert-row click"
+                  onClick={() => {
+                    setCertOpen(false)
+                    go({ page: 'contacts', companyId: c.id, companyTab: 'docs', docId: d.id })
+                  }}
+                >
+                  <span className={'tag' + (n < 0 ? ' red' : ' amber')}>{n < 0 ? `过期 ${-n} 天` : n === 0 ? '今天到期' : `还剩 ${n} 天`}</span>
+                  <div className="cert-main">
+                    <div className="cert-doc">
+                      {d.type && <span className="tag">{d.type}</span>}
+                      <b>{d.name || d.type || '未命名资料'}</b>
+                    </div>
+                    <div className="faint cert-sub">
+                      {[c.name, d.certNo && '编号 ' + d.certNo, d.issuer].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
+                  <span className="cert-date">{d.expireDate}</span>
+                </div>
+              )
+            })}
+          </div>
+        </Modal>
+      )}
 
       <div className="home3">
         <div className="home-col">
