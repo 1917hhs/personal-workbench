@@ -19,10 +19,20 @@ type Pkg = {
   contract?: Money // 签订价（实际招标成本）
   income?: Money // 对应收入（可选）
   inquiryId?: string | null
+  rateSetId?: string | null // 按合同包换算时用的汇率方案，空 = 默认方案
   files?: FileLink[]
   note?: string
 }
-type CostRec = { id: string; projectId: string; displayCurrency?: string; rates?: Record<string, number>; rateDate?: string; packages?: Pkg[] }
+/** 一套汇率方案：哪天确认的、备注（如「合同签订时」「月底结算」）、各币种汇率 */
+type RateSet = { id: string; date?: string; note?: string; rates: Record<string, number> }
+// rates / rateDate 始终同步为当前方案的内容（老数据只有这两个字段时当作一套方案）
+type CostRec = { id: string; projectId: string; displayCurrency?: string; rates?: Record<string, number>; rateDate?: string; rateSets?: RateSet[]; rateSetId?: string; rateMode?: 'unified' | 'pkg'; packages?: Pkg[] }
+
+function rateSetsOf(rec: CostRec): { sets: RateSet[]; active: RateSet | null } {
+  const sets: RateSet[] = rec.rateSets?.length ? rec.rateSets : rec.rates && Object.keys(rec.rates).length ? [{ id: 'legacy', date: rec.rateDate, note: '', rates: rec.rates }] : []
+  return { sets, active: sets.find((s) => s.id === rec.rateSetId) || sets[0] || null }
+}
+const setLabel = (s: RateSet) => [s.date || '未填日期', s.note].filter(Boolean).join(' · ')
 
 const STATUS = ['招标中', '已签约', '已结算']
 const statusCls = (s?: string) => (s === '已结算' ? 'good' : s === '已签约' ? 'amber' : '')
@@ -117,31 +127,44 @@ export default function Costs({ focusId }: { focusId?: string }) {
 }
 
 function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
-  const { data, saveItem, go } = useApp()
+  const { data, saveItem, go, toast } = useApp()
   const sup = useSup()
   const p = data.projects.find((x) => x.id === rec.projectId)!
   const pkgs = rec.packages || []
-  const rates = rec.rates || {}
-  const fx = useMemo(() => makeFx(rates), [JSON.stringify(rates)])
+  const { sets, active } = rateSetsOf(rec)
+  // 换算方式：统一用默认方案；或每个合同包用自己选的方案（如签订时的汇率），没选的用默认方案
+  const perPkg = rec.rateMode === 'pkg' && sets.length > 1
+  const setOf = (k: Pkg) => (perPkg && sets.find((s) => s.id === k.rateSetId)) || active
   const used = useMemo(() => [...new Set(pkgs.flatMap((k) => [k.budget?.currency, k.contract?.currency, k.income?.currency]).filter(Boolean) as string[])], [pkgs])
   const currencies = [...new Set(['USD', ...used, ...sup.currencies])]
   const disp = rec.displayCurrency || 'USD'
-  const missing = used.filter((c) => c !== 'USD' && !(rates[c] > 0))
-  if (disp !== 'USD' && !(rates[disp] > 0) && !missing.includes(disp)) missing.push(disp)
+  const missing: string[] = []
+  for (const k of pkgs) {
+    const r = setOf(k)?.rates || {}
+    for (const c of [k.budget?.currency, k.contract?.currency, k.income?.currency, disp]) if (c && c !== 'USD' && !(r[c] > 0) && !missing.includes(c)) missing.push(c)
+  }
+  if (!pkgs.length && disp !== 'USD' && !((active?.rates || {})[disp] > 0)) missing.push(disp)
   const [edit, setEdit] = useState<Pkg | null>(null)
   const [rateOpen, setRateOpen] = useState(false)
 
   const save = (patch: Partial<CostRec>) => saveItem('costs', { id: rec.id, ...patch })
+  const applySet = (v: string) => {
+    if (v === '__pkg') return save({ rateMode: 'pkg' })
+    const s = sets.find((x) => x.id === v)!
+    save({ rateMode: 'unified', rateSetId: s.id, rates: s.rates, rateDate: s.date })
+  }
   const savePkg = (k: Pkg) => save({ packages: pkgs.some((x) => x.id === k.id) ? pkgs.map((x) => (x.id === k.id ? k : x)) : [...pkgs, k] })
   const delPkg = (id: string) => save({ packages: pkgs.filter((x) => x.id !== id) })
 
   // 每行算好的数（显示币种）
   const rows = pkgs.map((k) => {
+    const rs = setOf(k)
+    const fx = makeFx(rs?.rates || {})
     const b = fx(k.budget, disp)
     const c = fx(k.contract, disp)
     const i = fx(k.income, disp)
     const save_ = b !== null && c !== null ? b - c : null // 节超：正数节约，负数超支
-    return { k, b, c, i, diff: save_, diffRate: save_ !== null && b ? save_ / b : null, ratio: b && c !== null ? c / b : null, profit: i !== null && c !== null ? i - c : null, margin: i && c !== null ? (i - c) / i : null }
+    return { k, rs, b, c, i, diff: save_, diffRate: save_ !== null && b ? save_ / b : null, ratio: b && c !== null ? c / b : null, profit: i !== null && c !== null ? i - c : null, margin: i && c !== null ? (i - c) / i : null }
   })
   const sum = (f: (r: (typeof rows)[number]) => number | null, only?: (r: (typeof rows)[number]) => boolean) => rows.filter((r) => (only ? only(r) : true)).reduce((s, r) => s + (f(r) ?? 0), 0)
   const signed = rows.filter((r) => r.c !== null && r.b !== null)
@@ -182,8 +205,24 @@ function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
             ))}
           </select>
         </label>
-        <button className={'btn' + (missing.length ? ' warn-btn' : '')} onClick={() => setRateOpen(true)} title="确认各币种的汇率，用于换算">
-          {missing.length ? `缺 ${missing.join('、')} 汇率` : rec.rateDate ? `汇率 · ${rec.rateDate.slice(5)} 确认` : '汇率未确认'}
+        {sets.length > 1 && (
+          <label className="cost-disp" title="统一：整个项目按同一套汇率对比；各合同包：每个合同包按自己选的汇率（如签订时），在合同包里选，没选的用默认方案">
+            汇率
+            <select className="input" style={{ maxWidth: 240 }} value={perPkg ? '__pkg' : active?.id || ''} onChange={(e) => applySet(e.target.value)}>
+              <option value="__pkg">各合同包用自己的汇率</option>
+              <optgroup label="整个项目统一用">
+                {sets.map((s) => (
+                  <option key={s.id} value={s.id}>{setLabel(s)}</option>
+                ))}
+              </optgroup>
+            </select>
+          </label>
+        )}
+        <button className={'btn' + (missing.length ? ' warn-btn' : '')} onClick={() => setRateOpen(true)} title="保存几套汇率（可备注），一键切换">
+          {missing.length ? `缺 ${missing.join('、')} 汇率` : sets.length > 1 ? '汇率方案…' : active ? `汇率 · ${setLabel(active)}` : '汇率未确认'}
+        </button>
+        <button className="btn" disabled={!pkgs.length} onClick={() => api.call('cost:export', rec.id).catch((e: any) => toast(e.message || String(e)))} title="按当前币种和汇率方案导出 Excel">
+          导出 Excel
         </button>
         <button className="btn primary" onClick={() => setEdit({ id: uid(), name: '', status: '已签约', budget: { currency: disp }, contract: { currency: disp }, files: [] })}>
           + 合同包
@@ -238,8 +277,15 @@ function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
                 return (
                   <tr key={r.k.id} className="click" onClick={() => setEdit(r.k)}>
                     <td>
-                      <div className="cost-name">{r.k.name || '未命名合同包'}</div>
-                      <div className="faint cost-sub">{[co(r.k.companyId), r.k.contractNo, r.k.signDate].filter(Boolean).join(' · ') || ' '}</div>
+                      <div className="cost-name">
+                        {r.k.name || '未命名合同包'}
+                        {perPkg && r.rs && (
+                          <span className={'cost-rate-tag' + (r.k.rateSetId && r.rs.id === r.k.rateSetId ? ' own' : '')} title={(r.k.rateSetId && r.rs.id === r.k.rateSetId ? '这个合同包选的汇率' : '没单独选，用默认方案') + '\n' + Object.entries(r.rs.rates).map(([c, v]) => `1 USD = ${v} ${c}`).join('\n')}>
+                            汇率 {setLabel(r.rs)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="faint cost-sub">{[co(r.k.companyId), r.k.contractNo, r.k.signDate].filter(Boolean).join(' · ') ||' '}</div>
                     </td>
                     <td style={{ textAlign: 'center' }}>
                       <span className={'tag ' + statusCls(r.k.status)}>{r.k.status || '—'}</span>
@@ -298,8 +344,21 @@ function CostDetail({ rec, onRemove }: { rec: CostRec; onRemove: () => void }) {
         <button className="btn small" onClick={onRemove}>移除这张成本表</button>
       </div>
 
-      {rateOpen && <RateDialog currencies={[...new Set([...used.filter((c) => c !== 'USD'), ...(disp !== 'USD' ? [disp] : []), ...Object.keys(rates)])]} all={sup.currencies.filter((c) => c !== 'USD')} rec={rec} onSave={(r, d) => (save({ rates: r, rateDate: d }), setRateOpen(false))} onClose={() => setRateOpen(false)} />}
-      {edit && <PkgDialog pkg={edit} project={p} currencies={currencies} onClose={() => setEdit(null)} onSave={(k) => (savePkg(k), setEdit(null))} onDelete={pkgs.some((x) => x.id === edit.id) ? () => (delPkg(edit.id), setEdit(null)) : undefined} />}
+      {rateOpen && (
+        <RateDialog
+          sets={sets}
+          activeId={active?.id || null}
+          need={[...new Set([...used.filter((c) => c !== 'USD'), ...(disp !== 'USD' ? [disp] : [])])]}
+          all={sup.currencies.filter((c) => c !== 'USD')}
+          onSave={(list, id) => {
+            const a = list.find((s) => s.id === id) || list[0]
+            save({ rateSets: list, rateSetId: a?.id, rates: a?.rates || {}, rateDate: a?.date })
+            setRateOpen(false)
+          }}
+          onClose={() => setRateOpen(false)}
+        />
+      )}
+      {edit && <PkgDialog pkg={edit} project={p} currencies={currencies} sets={sets} defaultSet={active} perPkg={perPkg} onClose={() => setEdit(null)} onSave={(k) => (savePkg(k), setEdit(null))} onDelete={pkgs.some((x) => x.id === edit.id) ? () => (delPkg(edit.id), setEdit(null)) : undefined} />}
     </div>
   )
 }
@@ -317,51 +376,119 @@ function Kpi({ label, value, unit, sub, tone }: { label: string; value: string; 
   )
 }
 
-/** 汇率：一律写成「1 USD = ? 外币」，确认后记下日期 */
-function RateDialog({ rec, currencies, all, onSave, onClose }: { rec: CostRec; currencies: string[]; all: string[]; onSave: (r: Record<string, number>, date: string) => void; onClose: () => void }) {
-  const [r, setR] = useState<Record<string, string>>(() => Object.fromEntries(currencies.map((c) => [c, rec.rates?.[c] ? String(rec.rates[c]) : ''])))
+/**
+ * 汇率方案：可以存好几套（如「合同签订时」「本月」「预算口径」），每套有日期和备注；
+ * 汇率一律写成「1 USD = ? 外币」。保存时选中的那套就是当前用来换算的。
+ */
+type EditSet = { id: string; date: string; note: string; rates: Record<string, string> }
+function RateDialog({ sets, activeId, need, all, onSave, onClose }: { sets: RateSet[]; activeId: string | null; need: string[]; all: string[]; onSave: (list: RateSet[], activeId: string) => void; onClose: () => void }) {
+  const blank = (from?: EditSet): EditSet => ({ id: uid(), date: ymd(), note: '', rates: from ? { ...from.rates } : Object.fromEntries(need.map((c) => [c, ''])) })
+  const [list, setList] = useState<EditSet[]>(() => {
+    const l = sets.map((s) => ({ id: s.id === 'legacy' ? uid() : s.id, date: s.date || '', note: s.note || '', rates: Object.fromEntries([...new Set([...need, ...Object.keys(s.rates || {})])].map((c) => [c, s.rates?.[c] ? String(s.rates[c]) : ''])) }))
+    return l.length ? l : [blank()]
+  })
+  const initActive = sets.findIndex((s) => s.id === activeId)
+  const [act, setAct] = useState(list[Math.max(0, initActive)].id) // 当前使用
+  const [cur, setCur] = useState(act) // 正在编辑
   const [extra, setExtra] = useState('')
-  const list = Object.keys(r)
-  const more = all.filter((c) => !list.includes(c))
+  const s = list.find((x) => x.id === cur) || list[0]
+  const patch = (p: Partial<EditSet>) => setList(list.map((x) => (x.id === s.id ? { ...x, ...p } : x)))
+  const codes = Object.keys(s.rates)
+  const more = all.filter((c) => !codes.includes(c))
+  const lack = (x: EditSet) => need.filter((c) => !(Number(x.rates[c]) > 0))
+  const add = () => {
+    const n = blank(s)
+    setList([...list, n])
+    setCur(n.id)
+  }
+  const del = () => {
+    if (list.length <= 1) return
+    if (!confirm(`删除汇率方案「${setLabel({ ...s, rates: {} })}」？`)) return
+    const rest = list.filter((x) => x.id !== s.id)
+    setList(rest)
+    setCur(rest[0].id)
+    if (act === s.id) setAct(rest[0].id)
+  }
   const ok = () => {
-    const out: Record<string, number> = {}
-    for (const [c, v] of Object.entries(r)) if (Number(v) > 0) out[c] = Number(v)
-    onSave(out, ymd())
+    const out: RateSet[] = list.map((x) => ({ id: x.id, date: x.date, note: x.note.trim(), rates: Object.fromEntries(Object.entries(x.rates).filter(([, v]) => Number(v) > 0).map(([c, v]) => [c, Number(v)])) }))
+    onSave(out, act)
   }
   return (
     <Modal
-      title="确认汇率"
-      width={440}
+      title="汇率方案"
+      width={720}
       onClose={onClose}
       footer={
         <>
-          <span className="faint" style={{ fontSize: 12, marginRight: 'auto' }}>{rec.rateDate ? `上次确认：${rec.rateDate}` : '还没确认过'}</span>
+          <span className="faint" style={{ fontSize: 12, marginRight: 'auto' }}>默认方案：整个项目统一对比时用它，合同包没单独选汇率时也用它。</span>
           <button className="btn" onClick={onClose}>取消</button>
-          <button className="btn primary" onClick={ok}>确认（记为今天）</button>
+          <button className="btn primary" onClick={ok}>保存</button>
         </>
       }
     >
-      <div className="faint" style={{ fontSize: 12, marginBottom: 10 }}>按「1 美元可以换多少外币」填写。所有金额先换算成美元，再换成你选的显示币种，所以任意两种币种之间都能互相换算。</div>
-      {list.length === 0 && <div className="faint" style={{ marginBottom: 8 }}>合同包都是美元，不需要汇率。</div>}
-      {list.map((c) => (
-        <div key={c} className="rate-row">
-          <span>1 USD =</span>
-          <input className="input" type="number" step="any" min="0" value={r[c]} placeholder="填汇率" onChange={(e) => setR({ ...r, [c]: e.target.value })} />
-          <b>{c}</b>
-          <span className="faint" style={{ fontSize: 12 }}>{Number(r[c]) > 0 ? `1 ${c} ≈ ${(1 / Number(r[c])).toPrecision(4)} USD` : ''}</span>
+      <div className="rate-mgr">
+        <div className="rate-sets">
+          {list.map((x) => (
+            <div key={x.id} className={'rate-set' + (x.id === cur ? ' on' : '')} onClick={() => setCur(x.id)}>
+              <div className="rate-set-top">
+                <b>{x.date || '未填日期'}</b>
+                {x.id === act && <span className="tag good">默认</span>}
+              </div>
+              <div className="faint rate-set-note">{x.note || '无备注'}</div>
+              <div className="faint rate-set-vals">
+                {Object.entries(x.rates)
+                  .filter(([, v]) => Number(v) > 0)
+                  .map(([c, v]) => `${c} ${v}`)
+                  .join(' · ') || '还没填汇率'}
+                {lack(x).length > 0 && <span className="red-text"> · 缺 {lack(x).join('、')}</span>}
+              </div>
+            </div>
+          ))}
+          <button className="btn small" style={{ marginTop: 6 }} onClick={add} title="复制当前这套的汇率作为起点">
+            + 新建方案
+          </button>
         </div>
-      ))}
-      {more.length > 0 && (
-        <div className="row" style={{ marginTop: 8, gap: 6 }}>
-          <select className="input" style={{ width: 'auto' }} value={extra} onChange={(e) => setExtra(e.target.value)}>
-            <option value="">再加一种币种…</option>
-            {more.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-          <button className="btn small" disabled={!extra} onClick={() => (setR({ ...r, [extra]: '' }), setExtra(''))}>添加</button>
+        <div className="rate-edit">
+          <div className="row" style={{ gap: 8, marginBottom: 10 }}>
+            <div className="field" style={{ flex: '0 0 150px', margin: 0 }}>
+              <label>确认日期</label>
+              <input className="input" type="date" value={s.date} onChange={(e) => patch({ date: e.target.value })} />
+            </div>
+            <div className="field" style={{ flex: 1, margin: 0 }}>
+              <label>备注</label>
+              <input className="input" value={s.note} placeholder="如：合同签订时、月底结算、预算口径" onChange={(e) => patch({ note: e.target.value })} />
+            </div>
+          </div>
+          <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>按「1 美元可以换多少外币」填写，任意两种币种经美元互相换算。</div>
+          {codes.length === 0 && <div className="faint" style={{ marginBottom: 8 }}>合同包都是美元，不需要汇率。</div>}
+          {codes.map((c) => (
+            <div key={c} className="rate-row">
+              <span>1 USD =</span>
+              <input className="input" type="number" step="any" min="0" value={s.rates[c]} placeholder="填汇率" onChange={(e) => patch({ rates: { ...s.rates, [c]: e.target.value } })} />
+              <b>{c}</b>
+              <span className="faint" style={{ fontSize: 12 }}>{Number(s.rates[c]) > 0 ? `1 ${c} ≈ ${(1 / Number(s.rates[c])).toPrecision(4)} USD` : need.includes(c) ? '合同包用到，需要填' : ''}</span>
+            </div>
+          ))}
+          {more.length > 0 && (
+            <div className="row" style={{ marginTop: 8, gap: 6 }}>
+              <select className="input" style={{ width: 'auto' }} value={extra} onChange={(e) => setExtra(e.target.value)}>
+                <option value="">再加一种币种…</option>
+                {more.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+              <button className="btn small" disabled={!extra} onClick={() => (patch({ rates: { ...s.rates, [extra]: '' } }), setExtra(''))}>添加</button>
+            </div>
+          )}
+          <div className="row" style={{ marginTop: 14, gap: 6 }}>
+            <button className="btn small primary" disabled={act === s.id} onClick={() => setAct(s.id)}>
+              {act === s.id ? '✓ 默认方案' : '设为默认'}
+            </button>
+            <span className="spacer" />
+            <button className="btn small danger" disabled={list.length <= 1} onClick={del}>删除这套</button>
+          </div>
         </div>
-      )}
+      </div>
     </Modal>
   )
 }
@@ -381,7 +508,7 @@ function MoneyInput({ value, onChange, currencies }: { value?: Money; onChange: 
   )
 }
 
-function PkgDialog({ pkg, project, currencies, onSave, onClose, onDelete }: { pkg: Pkg; project: any; currencies: string[]; onSave: (k: Pkg) => void; onClose: () => void; onDelete?: () => void }) {
+function PkgDialog({ pkg, project, currencies, sets, defaultSet, perPkg, onSave, onClose, onDelete }: { pkg: Pkg; project: any; currencies: string[]; sets: RateSet[]; defaultSet: RateSet | null; perPkg: boolean; onSave: (k: Pkg) => void; onClose: () => void; onDelete?: () => void }) {
   const { data, toast } = useApp()
   const [k, setK] = useState<Pkg>(pkg)
   const [picking, setPicking] = useState(false)
@@ -478,6 +605,19 @@ function PkgDialog({ pkg, project, currencies, onSave, onClose, onDelete }: { pk
             ))}
           </select>
         </div>
+        {sets.length > 1 && (
+          <div className="field">
+            <label>
+              换算汇率 <span className="faint">{perPkg ? '（如签订时的汇率）' : '（项目切到「各合同包用自己的汇率」时生效）'}</span>
+            </label>
+            <select className="input" value={k.rateSetId || ''} onChange={(e) => set({ rateSetId: e.target.value || null })}>
+              <option value="">默认方案{defaultSet ? `（${setLabel(defaultSet)}）` : ''}</option>
+              {sets.map((s) => (
+                <option key={s.id} value={s.id}>{setLabel(s)}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="field" style={{ gridColumn: '1 / -1' }}>
           <label>引用文件（合同、结算单、责任成本测算表…）</label>
           <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>

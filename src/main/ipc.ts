@@ -15,6 +15,7 @@ import { aiLog, aiStatus, restartMcp, undoAiAction } from './mcp'
 import { findRefs, importMedia, purgeMedia, refPath, refStatus as memoRefStatus, renameProjectRefs, saveMedia, type RefTarget } from './memo'
 import { deleteSection, getProfile, moveSection, profileMarkdown, revertChange, saveSection } from './profile'
 import { buildInquiryBook, exportOptions, type ExportReq } from './inqExport'
+import { buildCostBook } from './costExport'
 
 // 生成一个 16x16 的小图标，用于把文件从导图拖到微信、资源管理器
 function dragIcon() {
@@ -226,6 +227,22 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     const r0 = typeof req === 'string' ? { inquiryIds: [req] } : req
     const { buffer, fileName } = buildInquiryBook(store, r0)
     const r = await dialog.showSaveDialog(getWin()!, { title: r0.inquiryIds.length > 1 ? '导出询价汇总' : '导出比价表', defaultPath: fileName, filters: [{ name: 'Excel', extensions: ['xlsx'] }] })
+    if (r.canceled || !r.filePath) return null
+    try {
+      fs.writeFileSync(r.filePath, buffer)
+    } catch (e: any) {
+      throw new Error(e.code === 'EBUSY' || e.code === 'EPERM' ? '这个文件正被 Excel 打开着，请先关掉再导出' : '导出失败：' + e.message)
+    }
+    const m = await dialog.showMessageBox(getWin()!, { type: 'info', message: '已导出', detail: r.filePath, buttons: ['打开', '在资源管理器中显示', '关闭'], cancelId: 2 })
+    if (m.response === 0) shell.openPath(r.filePath)
+    if (m.response === 1) shell.showItemInFolder(r.filePath)
+    return r.filePath
+  })
+
+  // 履约成本表导出 Excel（见 costExport.ts）
+  h('cost:export', async (id: string) => {
+    const { buffer, fileName } = buildCostBook(store, id)
+    const r = await dialog.showSaveDialog(getWin()!, { title: '导出履约成本', defaultPath: fileName, filters: [{ name: 'Excel', extensions: ['xlsx'] }] })
     if (r.canceled || !r.filePath) return null
     try {
       fs.writeFileSync(r.filePath, buffer)
