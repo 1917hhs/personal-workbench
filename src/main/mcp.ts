@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx'
 import type { Store } from './store'
 import { writeJsonAtomic, readJson } from './store'
 import { compileHide, extOf, safeJoin, scanTree, uniqueTarget } from './files'
-import { afterProjectRename, assertNotRoot, hidePatterns, norm, projectRoot, searchAll, stripHtml, upsert } from './shared'
+import { afterProjectRename, assertNotRoot, assertUnlocked, hidePatterns, norm, projectRoot, searchAll, stripHtml, upsert } from './shared'
 import { listPages, purgePage, savePage } from './kb'
 import { refsWarning, renameProjectRefs } from './memo'
 import { flowSteps, flowText } from './flow'
@@ -187,9 +187,12 @@ function tools(store: Store): Tool[] {
     progress: p.progress ?? null,
     parentProject: store.projects.find((x) => x.id === p.parentId)?.name || '',
     folder: p.rootPath || '',
+    locked: !!p.locked, // 已锁定：文件只能查看，不能新建 / 改名 / 移动 / 删除 / 写入
     openTodos: store.todos.filter((t) => t.projectId === p.id && !t.done).length
   })
   const abs = (projectId: string, rel: string) => safeJoin(projectRoot(store, projectId), (rel || '').replace(/\\/g, '/').replace(/^\/+/, ''))
+  /** 要改文件时用：已锁定的项目直接拒绝 */
+  const wabs = (projectId: string, rel: string) => (assertUnlocked(store, projectId), abs(projectId, rel))
   const relOf = (projectId: string, a: string) => path.relative(projectRoot(store, projectId), a).split(path.sep).join('/')
   const str = { type: 'string' }
   const obj = (props: any, required: string[] = []) => ({ type: 'object', properties: props, required })
@@ -384,7 +387,7 @@ function tools(store: Store): Tool[] {
       description: '在项目文件夹里新建文件夹（可多层，如「06 意见与回复/专家评审」）。',
       inputSchema: obj({ projectId: str, path: { ...str, description: '相对项目文件夹的新文件夹路径' } }, ['projectId', 'path']),
       run: ({ projectId, path: rel }) => {
-        const target = abs(projectId, rel)
+        const target = wabs(projectId, rel)
         if (fs.existsSync(target)) return '文件夹已存在：' + rel
         fs.mkdirSync(target, { recursive: true })
         record(store, 'create_folder', `新建文件夹「${rel}」`, async () => {
@@ -400,10 +403,10 @@ function tools(store: Store): Tool[] {
       description: '把项目里的文件或文件夹移动到项目里的另一个文件夹（目标文件夹不存在会自动新建）。',
       inputSchema: obj({ projectId: str, from: { ...str, description: '要移动的文件或文件夹（相对路径）' }, toFolder: { ...str, description: '目标文件夹（相对路径），空字符串表示项目根目录' } }, ['projectId', 'from', 'toFolder']),
       run: ({ projectId, from, toFolder }) => {
-        const src = abs(projectId, from)
+        const src = wabs(projectId, from)
         if (!fs.existsSync(src)) throw new Error('找不到：' + from)
         assertNotRoot(store, projectId, src)
-        const dir = abs(projectId, toFolder)
+        const dir = wabs(projectId, toFolder)
         if (norm(dir) === norm(src) || norm(dir).startsWith(norm(src) + path.sep)) throw new Error('不能把文件夹移到它自己里面')
         if (norm(path.dirname(src)) === norm(dir)) return '已经在这个文件夹里了：' + from
         fs.mkdirSync(dir, { recursive: true })
@@ -429,7 +432,7 @@ function tools(store: Store): Tool[] {
       description: '给项目里的文件或文件夹改名（只改名字，不移动位置）。',
       inputSchema: obj({ projectId: str, path: str, newName: { ...str, description: '新名字（含扩展名）' } }, ['projectId', 'path', 'newName']),
       run: ({ projectId, path: rel, newName }) => {
-        const src = abs(projectId, rel)
+        const src = wabs(projectId, rel)
         if (!fs.existsSync(src)) throw new Error('找不到：' + rel)
         assertNotRoot(store, projectId, src)
         const name = String(newName || '').replace(/[\\/:*?"<>|]/g, '_').trim().replace(/[. ]+$/, '')
@@ -456,7 +459,7 @@ function tools(store: Store): Tool[] {
       inputSchema: obj({ projectId: str, path: str }, ['projectId', 'path']),
       run: async ({ projectId, path: rel }) => {
         if (!rel) throw new Error('不能删除项目根文件夹')
-        const target = abs(projectId, rel)
+        const target = wabs(projectId, rel)
         assertNotRoot(store, projectId, target)
         const warn = refsWarning(store, { kind: 'proj', pid: projectId, rel: relOf(projectId, target) })
         await shell.trashItem(target)
@@ -471,7 +474,7 @@ function tools(store: Store): Tool[] {
       inputSchema: obj({ projectId: str, path: str, content: str, overwrite: { type: 'boolean' } }, ['projectId', 'path', 'content']),
       run: ({ projectId, path: rel, content, overwrite }) => {
         if (!['md', 'txt', 'csv', 'json'].includes(extOf(rel))) throw new Error('只能写 .md / .txt / .csv / .json 文件')
-        const target = abs(projectId, rel)
+        const target = wabs(projectId, rel)
         if (fs.existsSync(target) && !overwrite) throw new Error('文件已存在，如需覆盖请设置 overwrite=true')
         fs.mkdirSync(path.dirname(target), { recursive: true })
         writeWithUndo(target, () => fs.writeFileSync(target, (extOf(rel) === 'csv' ? '﻿' : '') + content, 'utf8'), 'write_text_file', `写入文件「${rel}」`)
@@ -493,7 +496,7 @@ function tools(store: Store): Tool[] {
       ),
       run: ({ projectId, path: rel, sheets, overwrite }) => {
         if (extOf(rel) !== 'xlsx') throw new Error('文件名要以 .xlsx 结尾')
-        const target = abs(projectId, rel)
+        const target = wabs(projectId, rel)
         if (fs.existsSync(target) && !overwrite) throw new Error('文件已存在，如需覆盖请设置 overwrite=true')
         fs.mkdirSync(path.dirname(target), { recursive: true })
         const wb = XLSX.utils.book_new()
@@ -509,7 +512,7 @@ function tools(store: Store): Tool[] {
       inputSchema: obj({ projectId: str, path: { ...str, description: '相对路径，以 .doc 结尾' }, title: str, content: str, overwrite: { type: 'boolean' } }, ['projectId', 'path', 'content']),
       run: ({ projectId, path: rel, title, content, overwrite }) => {
         if (extOf(rel) !== 'doc') throw new Error('文件名要以 .doc 结尾')
-        const target = abs(projectId, rel)
+        const target = wabs(projectId, rel)
         if (fs.existsSync(target) && !overwrite) throw new Error('文件已存在，如需覆盖请设置 overwrite=true')
         fs.mkdirSync(path.dirname(target), { recursive: true })
         const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${esc(title || '')}</title><style>body{font-family:宋体,SimSun;font-size:12pt;line-height:1.6}h1{font-size:18pt;text-align:center}h2{font-size:15pt}h3{font-size:13pt}</style></head><body>${title ? `<h1>${esc(title)}</h1>` : ''}${markdownToHtml(content)}</body></html>`

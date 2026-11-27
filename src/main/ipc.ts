@@ -10,7 +10,7 @@ import { ASR_MODELS, asrStatus, cancelDownload, defaultAsrRoot, downloadModel, i
 import { applyLibraryScan, importToLibrary, libAbs, libraryTypeDir, moveLibraryDir, moveToTypeDir, renameLibraryType, scanLibrary } from './library'
 import { listHistory, listPages, purgePage, readVersion, savePage } from './kb'
 import { exportPack, importPack, packInfo } from './pack'
-import { afterProjectRename, assertNotRoot, fileIndex, folderId, listStars, norm, projectRoot, relinkProject, retargetAbs, scanProject, searchAll, setOnDataChanged, upsert } from './shared'
+import { afterProjectRename, assertNotRoot, assertUnlocked, lockedProjectOf, fileIndex, folderId, listStars, norm, projectRoot, relinkProject, retargetAbs, scanProject, searchAll, setOnDataChanged, upsert } from './shared'
 import { aiLog, aiStatus, restartMcp, undoAiAction } from './mcp'
 import { findRefs, importMedia, purgeMedia, refPath, refStatus as memoRefStatus, renameProjectRefs, saveMedia, type RefTarget } from './memo'
 import { deleteSection, getProfile, moveSection, profileMarkdown, revertChange, saveSection } from './profile'
@@ -129,6 +129,80 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
     return n
   }
 
+  // ---------- 项目锁定 ----------
+  /** 项目文件夹里的所有文件（相对路径），跳过 node_modules / .git */
+  const allFiles = (root: string) => {
+    const out: string[] = []
+    const walk = (dir: string, rel: string) => {
+      let list: fs.Dirent[] = []
+      try {
+        list = fs.readdirSync(dir, { withFileTypes: true })
+      } catch {
+        return
+      }
+      for (const d of list) {
+        if (d.name === 'node_modules' || d.name === '.git') continue
+        const r = rel ? rel + '/' + d.name : d.name
+        if (d.isDirectory()) walk(path.join(dir, d.name), r)
+        else if (d.isFile()) out.push(r)
+      }
+    }
+    walk(root, '')
+    return out
+  }
+  const isReadonly = (f: string) => (fs.statSync(f).mode & 0o200) === 0
+  // 锁定：记下时间和原因；readonly 时把还可写的文件设成只读（记下是哪些，解锁时只恢复这些）
+  h('projects:lock', (id: string, opt: { note?: string; readonly?: boolean } = {}) => {
+    const p = store.projects.find((x) => x.id === id)
+    if (!p) throw new Error('找不到项目')
+    let changed = 0
+    const failed: string[] = []
+    const made: string[] = []
+    if (opt.readonly && p.rootPath && fs.existsSync(p.rootPath)) {
+      for (const r of allFiles(p.rootPath)) {
+        const f = path.join(p.rootPath, r)
+        try {
+          if (isReadonly(f)) continue
+          fs.chmodSync(f, 0o444)
+          made.push(r)
+          changed++
+        } catch {
+          failed.push(r)
+        }
+      }
+      const meta = store.meta(id)
+      meta.lockReadonly = [...new Set([...(meta.lockReadonly || []), ...made])]
+      store.saveMeta(id, meta)
+    }
+    p.locked = { at: new Date().toISOString(), note: (opt.note || '').trim(), readonly: !!opt.readonly }
+    store.save('projects')
+    return { projects: store.projects, changed, failed: failed.slice(0, 20), failedCount: failed.length }
+  })
+  // 解锁：恢复锁定时设成只读的那些文件（原来就只读的不动）
+  h('projects:unlock', (id: string) => {
+    const p = store.projects.find((x) => x.id === id)
+    if (!p) throw new Error('找不到项目')
+    const meta = store.meta(id)
+    let restored = 0
+    const missing: string[] = []
+    for (const r of meta.lockReadonly || []) {
+      const f = p.rootPath ? path.join(p.rootPath, r) : ''
+      try {
+        if (f && fs.existsSync(f)) {
+          if (isReadonly(f)) fs.chmodSync(f, 0o666)
+          restored++
+        } else missing.push(r)
+      } catch {
+        missing.push(r)
+      }
+    }
+    delete meta.lockReadonly
+    store.saveMeta(id, meta)
+    delete p.locked
+    store.save('projects')
+    return { projects: store.projects, restored, missing: missing.length }
+  })
+
   // 新建项目的文件夹：template 按模板建；empty 只建一个以项目命名的空文件夹；existing 关联已有；none 不关联
   h('projects:create', (p: any, folder: { mode: 'template' | 'empty' | 'existing' | 'none'; path?: string; templateId?: string }) => {
     if (folder.mode === 'template' || folder.mode === 'empty') {
@@ -157,6 +231,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
 
   // 在软件里给项目文件夹改名：文件夹改名，项目路径、引用、询价文件路径一起改
   h('projects:renameFolder', async (id: string, name: string) => {
+    assertUnlocked(store, id)
     const p = store.projects.find((x) => x.id === id)
     if (!p?.rootPath) throw new Error('项目还没有关联文件夹')
     if (!fs.existsSync(p.rootPath)) throw new Error('找不到项目文件夹：' + p.rootPath)
@@ -195,6 +270,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
 
   // rel 为空：补到项目根目录；否则补到项目里的这个子文件夹
   h('projects:applyTemplate', (id: string, templateId?: string, rel?: string) => {
+    assertUnlocked(store, id)
     const root = projectRoot(store, id)
     const t = templateOf(templateId)
     const target = rel ? safeJoin(root, rel) : root
@@ -210,16 +286,21 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
 
   // ---------- 询价 ----------
   // 询价文件 / 回价文件「上传」：复制进项目文件夹（见 procure.ts）
-  h('inquiry:trashFiles', (paths: string[]) => trashInquiryFiles(store, paths))
+  h('inquiry:trashFiles', (paths: string[]) => {
+    const lp = paths.map((p) => lockedProjectOf(store, p)).find(Boolean)
+    if (lp) throw new Error(`项目「${lp.name}」已锁定，里面的询价 / 回价文件不能删除，先解锁`)
+    return trashInquiryFiles(store, paths)
+  })
   h('company:storeFiles', (name: string, kind: 'docs' | 'experience', paths: string[]) => storeCompanyFiles(store, name, kind, paths))
   h('company:openFolder', (name: string) => {
     const dir = path.join(store.companyDir, cleanName(name))
     fs.mkdirSync(dir, { recursive: true })
     return shell.openPath(dir)
   })
-  h('inquiry:storeFiles', (inquiry: { projectId?: string; name: string }, kind: 'version' | 'quote', sub: string, paths: string[]) =>
-    storeInquiryFiles(store, inquiry, kind, sub, paths)
-  )
+  h('inquiry:storeFiles', (inquiry: { projectId?: string; name: string }, kind: 'version' | 'quote', sub: string, paths: string[]) => {
+    assertUnlocked(store, inquiry.projectId)
+    return storeInquiryFiles(store, inquiry, kind, sub, paths)
+  })
 
   // 导出：一条询价的比价表，或同一项目几条询价的汇总表（工作表、回价字段可选，见 inqExport.ts）
   h('inquiry:exportOptions', () => exportOptions())
@@ -276,6 +357,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   })
 
   h('projects:delete', (id: string) => {
+    assertUnlocked(store, id)
     store.projects = store.projects.filter((p) => p.id !== id).map((p) => (p.parentId === id ? { ...p, parentId: null } : p))
     store.todos = store.todos.map((t) => (t.projectId === id ? { ...t, projectId: null } : t))
     // 询价保留，改成「未关联项目」，不留指向已删项目的 id
@@ -390,6 +472,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   h('project:tree', (id: string, showHidden: boolean) => scanProject(store, id, showHidden))
 
   h('project:addRefs', (id: string, parentRel: string, paths: string[]) => {
+    assertUnlocked(store, id)
     const meta = store.meta(id)
     for (const p of paths) {
       if (meta.refs.some((r) => r.parentRel === parentRel && norm(r.path) === norm(p))) continue
@@ -400,6 +483,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   })
 
   h('project:removeRef', (id: string, refId: string) => {
+    assertUnlocked(store, id)
     const meta = store.meta(id)
     meta.refs = meta.refs.filter((r) => r.id !== refId)
     store.saveMeta(id, meta)
@@ -467,6 +551,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   const abs = (id: string, rel: string) => safeJoin(projectRoot(store, id), rel)
 
   h('fs:mkdir', (id: string, rel: string, name: string) => {
+    assertUnlocked(store, id)
     const dir = path.join(abs(id, rel), name.replace(/[\\/:*?"<>|]/g, '_'))
     if (fs.existsSync(dir)) throw new Error('同名文件夹已存在')
     fs.mkdirSync(dir)
@@ -474,6 +559,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   })
 
   h('fs:rename', (id: string, rel: string, newName: string) => {
+    assertUnlocked(store, id)
     const from = abs(id, rel)
     assertNotRoot(store, id, from)
     const name = String(newName || '').replace(/[\\/:*?"<>|]/g, '_').trim().replace(/[. ]+$/, '')
@@ -497,6 +583,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   h('memo:revealRef', (r: any) => shell.showItemInFolder(refPath(store, r)))
 
   h('fs:trash', async (id: string, rel: string) => {
+    assertUnlocked(store, id)
     if (!rel) throw new Error('不能删除项目根文件夹')
     const target = abs(id, rel)
     assertNotRoot(store, id, target)
@@ -505,6 +592,9 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
   })
 
   h('fs:import', async (id: string, destRel: string, paths: string[]) => {
+    assertUnlocked(store, id)
+    // 从别的已锁定项目里「移动」出来也不行
+    const lockedSrc = paths.map((p) => lockedProjectOf(store, p)).find(Boolean)
     const win = getWin()
     const dest = abs(id, destRel)
     const r = await dialog.showMessageBox(win!, {
@@ -523,6 +613,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
       store.saveMeta(id, meta)
       return paths
     }
+    if (r.response === 0 && lockedSrc) throw new Error(`这些文件在已锁定的项目「${lockedSrc.name}」里，不能移动，可以选「复制过来」`)
     return importPaths(dest, paths, r.response === 0 ? 'move' : 'copy')
   })
 

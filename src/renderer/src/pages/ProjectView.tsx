@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, CATS, catOf, clip, errMsg, extOf, fmtSize, fmtTime, joinPath, normPath, stageOf, uid, useApp, refWarn, leadsOf } from '../lib'
-import { ask, ContextMenu, Empty, MenuItem, Tabs } from '../ui'
+import { ask, ContextMenu, Empty, MenuItem, Modal, Tabs } from '../ui'
 import { groupVersions, injectRefs } from '../versions'
 import MindMap, { FileBadge, TNode } from './MindMap'
 import ProjectDialog from './ProjectDialog'
@@ -117,12 +117,14 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
   const refCount = (rel: string) => (res?.root ? refCounts.get(normPath(joinPath(res.root, rel))) || 0 : 0)
 
   const addRefs = async (parentRel: string, paths: string[]) => {
+    if (locked) return lockedTip()
     const m = await api.call('project:addRefs', id, parentRel, paths)
     setRes((r: any) => ({ ...r, meta: m }))
     await load()
   }
 
   const removeRef = async (n: TNode) => {
+    if (locked) return lockedTip()
     await api.call('project:removeRef', id, n.refId)
     await load()
     setSelected(null)
@@ -153,7 +155,13 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
     }
   }
 
+  // 锁定的项目：只能查看，改文件的操作一律拦下（主进程也会拦）
+  const locked = !!project?.locked
+  const lockedTip = () => toast('项目已锁定，只能查看。要修改请先点右上角「已锁定」解锁')
+  const [lockOpen, setLockOpen] = useState(false)
+
   const newFolder = async (rel: string) => {
+    if (locked) return lockedTip()
     const name = await ask('新建文件夹', '', '文件夹名称')
     if (!name) return
     await run(async () => {
@@ -164,6 +172,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
   }
 
   const rename = async (n: TNode) => {
+    if (locked) return lockedTip()
     if (!n.rel) return renameRoot()
     const name = await ask('重命名', n.name)
     if (!name || name === n.name) return
@@ -172,6 +181,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
 
   // 给项目文件夹本身改名（磁盘上的文件夹跟着改，项目里的引用、询价文件路径一起更新）
   const renameRoot = async () => {
+    if (locked) return lockedTip()
     const cur = String(res?.root || project?.rootPath || '').split(/[\\/]/).pop() || ''
     const name = (await ask('项目文件夹改名', cur, '文件夹的新名字'))?.trim()
     if (!name || name === cur) return
@@ -184,6 +194,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
   }
 
   const trash = async (n: TNode) => {
+    if (locked) return lockedTip()
     if (!n.rel) return
     const refs: any[] = await api.call('memo:findRefs', { kind: 'proj', pid: id, rel: n.rel }).catch(() => [])
     if (!confirm(`把「${n.name}」移到系统回收站？\n可以在回收站里还原。${refWarn(refs)}`)) return
@@ -252,7 +263,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
         { label: '复制路径', onClick: () => api.call('clipboard:text', n.refPath).then(() => toast('路径已复制')) },
         { label: '新建待办（关联它）…', disabled: !n.refExists, onClick: () => todoFor(n.refPath!, n.name, n.dir) }
       )
-      if (!n.refSub) items.push('sep', { label: '移除引用（原文件不动）', danger: true, onClick: () => removeRef(n) })
+      if (!n.refSub && !locked) items.push('sep', { label: '移除引用（原文件不动）', danger: true, onClick: () => removeRef(n) })
       return setMenu({ x, y, items })
     }
     if (n.virtual === 'versions') {
@@ -262,7 +273,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
     }
     const inGroup = !n.dir && !!n.version
     if (n.dir) {
-      items.push({ label: '新建子文件夹', onClick: () => newFolder(n.rel) })
+      if (!locked) items.push({ label: '新建子文件夹', onClick: () => newFolder(n.rel) })
       if (n.rel) items.push({ label: '聚焦此分支', onClick: () => setFocus(n.rel) })
       const subDirs = (n.children || []).some((c) => c.dir && !c.virtual)
       if (subDirs) {
@@ -271,7 +282,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
           { label: '展开所有子文件夹', onClick: () => foldAll(n, false) }
         )
       }
-      if ((settings.templates || []).length) {
+      if ((settings.templates || []).length && !locked) {
         items.push({ label: '按模板补齐目录 ▸', onClick: () => setMenu({ x, y, k: Date.now(), items: [{ label: n.rel ? `补到「${n.rel.split('/').pop()}」下` : '补到项目根目录', disabled: true }, ...templateItems(n.rel)] }) })
       }
     } else {
@@ -291,7 +302,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
         }
       })
     }
-    if (n.dir && clip.ref) {
+    if (n.dir && clip.ref && !locked) {
       const src = clip.ref
       items.push({ label: `粘贴引用：${src.split(/[\\/]/).pop()}`, onClick: () => addRefs(n.rel, [src]) })
     }
@@ -305,8 +316,8 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
     if (!n.dir) items.push(...tagMenu(n))
     if (inGroup) items.push({ label: '移出版本组', onClick: () => setMeta(n.rel, { noGroup: true }) })
     else if (!n.dir && meta[n.rel]?.noGroup) items.push({ label: '重新参与版本归组', onClick: () => setMeta(n.rel, { noGroup: null }) })
-    if (!n.rel) items.push({ label: '项目文件夹改名…', onClick: () => renameRoot() })
-    if (n.rel) {
+    if (!n.rel && !locked) items.push({ label: '项目文件夹改名…', onClick: () => renameRoot() })
+    if (n.rel && !locked) {
       items.push(
         { label: '重命名', onClick: () => rename(n) },
         meta[n.rel]?.hidden
@@ -316,6 +327,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
         { label: '移到回收站', danger: true, onClick: () => trash(n) }
       )
     }
+    if (locked) items.push('sep', { label: '🔒 项目已锁定，不能改名 / 移动 / 删除', disabled: true })
     setMenu({ x, y, items })
   }
 
@@ -338,6 +350,10 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
     // 在输入框里打字时（备注、搜索）按 Delete / Enter / Tab 不能当成对文件的操作
     if ((e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return
     if (!selNode || selNode.virtual) return
+    if (locked && ['Delete', 'F2', 'Tab'].includes(e.key)) {
+      if (e.key === 'Tab') e.preventDefault()
+      return lockedTip()
+    }
     if (e.key === 'Delete') trash(selNode)
     else if (e.key === 'F2' && selNode.rel) rename(selNode)
     else if (e.key === 'Tab' && selNode.dir) {
@@ -356,6 +372,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
   }
 
   const removeProject = async () => {
+    if (locked) return lockedTip()
     if (!confirm(`从列表中移除「${project.name}」？\n只删除项目记录，不会删除磁盘上的任何文件。`)) return
     setData(await api.call('projects:delete', id))
     go({ page: 'projects' })
@@ -383,10 +400,19 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
         ))}
         <span className="spacer" />
         <Tabs value={tab} onChange={setTab} options={[{ id: 'map', label: '导图' }, { id: 'detail', label: '详情' }]} />
+        <button className={'btn lock-btn' + (locked ? ' on' : '')} title={locked ? '已锁定：文件只能查看。点这里解锁' : '合同签完、资料归档后锁定，防止误改、误删'} onClick={() => setLockOpen(true)}>
+          {locked ? '🔒 已锁定' : '🔓 锁定'}
+        </button>
         <button className="btn" onClick={() => setEditing(true)}>编辑信息</button>
         {project.rootPath && <button className="btn" onClick={() => api.call('projects:openFolder', id).then(() => load()).catch((e: any) => (toast(errMsg(e)), load()))}>打开文件夹</button>}
-        <button className="btn danger" onClick={removeProject}>移除</button>
+        <button className="btn danger" disabled={locked} title={locked ? '已锁定的项目不能移除，先解锁' : ''} onClick={removeProject}>移除</button>
       </div>
+      {locked && (
+        <div className="lock-banner">
+          🔒 项目已锁定{project.locked.at ? '（' + project.locked.at.slice(0, 10) + (project.locked.note ? ' · ' + project.locked.note : '') + '）' : ''}：文件只能打开查看，不能新建、改名、移动、删除或拖入。{project.locked.readonly ? '文件已设为只读，在 Word / Excel 里也不能直接保存修改。' : ''}
+          <button className="btn small" onClick={() => setLockOpen(true)}>解锁…</button>
+        </div>
+      )}
 
       {tab === 'detail' ? (
         <ProjectDetail project={project} />
@@ -437,6 +463,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
               <span className="spacer" style={{ flex: 1 }} />
               <button
                 className="btn small"
+                disabled={locked}
                 onClick={(e) => {
                   const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
                   // 选中了子文件夹就补到它下面，否则补到项目根目录
@@ -475,7 +502,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
                 onOpen={(n) => (n.virtual === 'ref' ? api.call('shell:openPath', n.refPath) : api.call('fs:open', id, n.rel))}
                 onContext={openMenu}
                 onNewFolder={newFolder}
-                onDropFiles={(dest, paths) => run(() => api.call('fs:import', id, dest, paths))}
+                onDropFiles={(dest, paths) => (locked ? lockedTip() : run(() => api.call('fs:import', id, dest, paths)))}
                 onKey={onKey}
               />
               {selNode && (
@@ -505,6 +532,7 @@ export default function ProjectView({ id, select, tab: initialTab }: { id: strin
       )}
       {menu && <ContextMenu key={menu.k || 0} x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       {editing && <ProjectDialog project={project} onClose={() => setEditing(false)} />}
+      {lockOpen && <LockDialog project={project} onClose={() => setLockOpen(false)} />}
     </>
   )
 }
@@ -619,14 +647,14 @@ function FilePanel(props: any) {
           {!n.dir && <button className="btn small primary" onClick={() => api.call('fs:open', id, n.rel)}>打开</button>}
           <button className="btn small" onClick={() => api.call('fs:reveal', id, n.rel)}>在资源管理器中显示</button>
           <button className="btn small" onClick={() => api.call('fs:copyPath', id, n.rel).then(() => toast('路径已复制'))}>复制路径</button>
-          {!isRoot && <button className="btn small" onClick={() => props.onRename(n)}>重命名</button>}
+          {!isRoot && !project?.locked && <button className="btn small" onClick={() => props.onRename(n)}>重命名</button>}
           {!isRoot && (
             <button className={'btn small' + (props.meta.starred ? ' primary' : '')} title="加星标后，侧栏「星标文件」里点一下就能回到这里" onClick={() => props.onStar(n)}>
               {props.meta.starred ? '★ 已星标' : '☆ 星标'}
             </button>
           )}
           {!isRoot && <button className="btn small" title="新建一条待办并关联它，待办里点一下就能跳回来" onClick={() => props.onTodo(props.abs, n.name, n.dir)}>＋ 待办</button>}
-          {isRoot && <button className="btn small" onClick={() => props.onRename(n)}>文件夹改名</button>}
+          {isRoot && !project?.locked && <button className="btn small" onClick={() => props.onRename(n)}>文件夹改名</button>}
           {isRoot && <button className="btn small" onClick={props.onEditProject}>编辑项目信息</button>}
           {n.dir && (n.children || []).some((c) => c.dir && !c.virtual) && (
             <>
@@ -754,7 +782,7 @@ function RefPanel(props: any) {
           <button className="btn small" disabled={!n.refExists} onClick={() => api.call('shell:reveal', n.refPath)}>在资源管理器中显示</button>
           <button className="btn small" onClick={() => props.onLocate(n.refPath)}>定位到原文件</button>
           <button className="btn small" disabled={!n.refExists} onClick={() => props.onTodo(n.refPath, n.name, n.dir)}>＋ 待办</button>
-          {!n.refSub && <button className="btn small danger" onClick={() => props.onRemoveRef(n)}>移除引用</button>}
+          {!n.refSub && !props.project?.locked && <button className="btn small danger" onClick={() => props.onRemoveRef(n)}>移除引用</button>}
         </div>
         {n.refExists && !n.dir && (
           <div>
@@ -789,4 +817,80 @@ export function Preview({ p, ext }: { p: any; ext: string }) {
     )
   if (['dwg', 'dxf', 'dwf'].includes(ext)) return <div className="faint">图纸文件不在软件内预览，双击用 CAD 打开。</div>
   return <div className="faint">这种格式暂不支持预览，双击用默认程序打开。</div>
+}
+
+/**
+ * 锁定 / 解锁项目。锁定后项目文件只能查看（软件里不能新建、改名、移动、删除、拖入，AI 接口同样拦下）；
+ * 可选把文件设为只读，在 Word / Excel 里也不能直接保存修改。解锁时只恢复锁定时改成只读的文件。
+ */
+function LockDialog({ project, onClose }: { project: any; onClose: () => void }) {
+  const { setData, toast } = useApp()
+  const locked = !!project.locked
+  const [note, setNote] = useState('合同已签，资料已归档')
+  const [readonly, setReadonly] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const go = async () => {
+    setBusy(true)
+    try {
+      if (locked) {
+        const r = await api.call('projects:unlock', project.id)
+        setData({ projects: r.projects })
+        toast(r.restored ? `已解锁，${r.restored} 个文件恢复为可编辑` : '已解锁')
+      } else {
+        const r = await api.call('projects:lock', project.id, { note, readonly })
+        setData({ projects: r.projects })
+        toast(readonly ? `已锁定，${r.changed} 个文件设为只读${r.failedCount ? `（${r.failedCount} 个没设上，可能正被打开）` : ''}` : '已锁定')
+      }
+      onClose()
+    } catch (e) {
+      toast(errMsg(e))
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal
+      title={locked ? '解锁项目' : '锁定项目'}
+      width={480}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>取消</button>
+          <button className={'btn ' + (locked ? 'danger' : 'primary')} disabled={busy} onClick={go}>
+            {busy ? '处理中…' : locked ? '解锁' : '锁定'}
+          </button>
+        </>
+      }
+    >
+      {locked ? (
+        <div className="lock-dlg">
+          <p>
+            「{project.name}」锁定于 {String(project.locked.at || '').slice(0, 10)}
+            {project.locked.note ? `（${project.locked.note}）` : ''}。
+          </p>
+          <p>解锁后可以重新新建、改名、移动、删除文件。{project.locked.readonly ? '锁定时设为只读的文件会恢复为可编辑（原来就只读的不动）。' : ''}</p>
+          <p className="faint">改完记得再锁上。</p>
+        </div>
+      ) : (
+        <div className="lock-dlg">
+          <p>锁定后，「{project.name}」的文件只能打开查看：</p>
+          <ul>
+            <li>软件里不能新建、改名、移动、删除文件，也不能拖入文件、改引用、往里放询价 / 回价文件</li>
+            <li>AI 助手同样不能改这个项目的文件</li>
+            <li>备注、颜色、星标、待办照常可用，随时可以解锁</li>
+          </ul>
+          <div className="field">
+            <label>锁定原因（可选）</label>
+            <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+          <label className="row" style={{ gap: 6, alignItems: 'flex-start', cursor: 'pointer', marginTop: 8 }}>
+            <input type="checkbox" checked={readonly} onChange={(e) => setReadonly(e.target.checked)} style={{ marginTop: 3 }} />
+            <span>
+              同时把项目里的文件设为只读
+              <div className="faint" style={{ fontSize: 12 }}>在 Word / Excel 里打开也不能直接保存修改，资源管理器删除时会多一道提示。解锁时自动恢复。</div>
+            </span>
+          </label>
+        </div>
+      )}
+    </Modal>
+  )
 }

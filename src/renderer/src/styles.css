@@ -971,3 +971,10 @@ tr.drop-row.over td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .bid-hint button { border: 1px solid var(--line); background: var(--panel); border-radius: 4px; padding: 0 6px; font: 11.5px Consolas, monospace; color: var(--accent); cursor: pointer; }
 .bid-hint button:hover { border-color: var(--accent); }
 .bid-hint.warn { color: var(--warn, #b7791f); display: block; }
+/* 项目锁定 */
+.lock-btn.on { border-color: var(--warn, #b7791f); color: var(--warn, #b7791f); background: color-mix(in srgb, #f59e0b 10%, var(--panel)); }
+.lock-banner { display: flex; align-items: center; gap: 10px; padding: 7px 16px; font-size: 12.5px; background: color-mix(in srgb, #f59e0b 12%, var(--panel)); border-bottom: 1px solid color-mix(in srgb, #f59e0b 35%, var(--line)); color: var(--text); }
+.lock-banner .btn { margin-left: auto; }
+.lock-dlg p { margin: 0 0 8px; line-height: 1.6; }
+.lock-dlg ul { margin: 0 0 12px; padding-left: 20px; line-height: 1.7; font-size: 13px; }
+.lock-dlg .field label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 4px; }

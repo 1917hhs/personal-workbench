@@ -77,6 +77,7 @@ export default function Projects() {
           <StageDot color={s.color} />
           <span className="pc-stage">{s.name}</span>
           {p.starred && <span style={{ color: '#f59e0b' }}>★</span>}
+          {p.locked && <span title={'已锁定' + (p.locked.note ? '：' + p.locked.note : '')}>🔒</span>}
           {p.status && <span className={'tag' + statusCls(p.status)} style={{ marginLeft: 'auto' }}>{p.status}</span>}
         </div>
         <div className="proj-name">{p.name}</div>

@@ -91,6 +91,20 @@ export function scanProject(store: Store, id: string, showHidden = false) {
 
 export const norm = (p: string) => path.resolve(p).toLowerCase()
 
+/**
+ * 项目锁定（合同签完、资料归档后防误操作）：锁定的项目里不能新建、改名、移动、删除、拖入文件，
+ * 也不能改引用；打开、查看、备注、星标照常。界面和 AI 接口改文件前都先过这一关。
+ */
+export function assertUnlocked(store: Store, id?: string | null) {
+  const p = id ? store.projects.find((x) => x.id === id) : null
+  if (p?.locked) throw new Error(`项目「${p.name}」已锁定，只能查看。要修改请先到项目页点「已锁定」解锁`)
+}
+/** 这个绝对路径落在哪个已锁定项目的文件夹里（没有就是 undefined） */
+export function lockedProjectOf(store: Store, absPath: string) {
+  const a = norm(absPath)
+  return store.projects.find((p) => p.locked && p.rootPath && (a === norm(p.rootPath) || a.startsWith(norm(p.rootPath) + path.sep)))
+}
+
 /** 删除 / 改名 / 移动前的检查：不能是项目根文件夹本身（「.」「a/..」这类写法也会解析成根目录） */
 export function assertNotRoot(store: Store, id: string, absPath: string) {
   if (norm(absPath) === norm(projectRoot(store, id))) throw new Error('不能对项目根文件夹本身做这个操作')

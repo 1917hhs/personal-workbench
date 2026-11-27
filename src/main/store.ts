@@ -306,9 +306,10 @@ export class Store {
   }
 
   /** nodes：节点备注/颜色/折叠/隐藏/标签；refs：引用（一个文件挂在多个位置） */
-  meta(projectId: string): { nodes: Record<string, any>; refs: any[] } {
+  meta(projectId: string): { nodes: Record<string, any>; refs: any[]; lockReadonly?: string[] } {
     const m = readJson<any>(this.file(`meta/${projectId}.json`), {})
-    return { nodes: m.nodes || {}, refs: m.refs || [] }
+    // lockReadonly：项目锁定时设成只读的文件（解锁时恢复），其他地方读写 meta 时要一起带着
+    return { nodes: m.nodes || {}, refs: m.refs || [], ...(m.lockReadonly ? { lockReadonly: m.lockReadonly } : {}) }
   }
 
   saveMeta(projectId: string, meta: any) {

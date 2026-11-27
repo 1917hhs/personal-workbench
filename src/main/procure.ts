@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import type { Store } from './store'
 import { uniqueTarget } from './files'
+import { assertUnlocked } from './shared'
 
 // 采购（单位 / 供应商、询价、发包、回价）在主进程里的公共逻辑：界面（ipc）和 AI 助手（mcp）共用。
 
@@ -33,6 +34,7 @@ export const normName = (s: any) =>
  * 项目没有关联文件夹时，放到资料库下的「询价文件 / 回价文件」。已经在目标文件夹里的文件不再复制。
  */
 export function storeInquiryFiles(store: Store, inquiry: { projectId?: string | null; name: string }, kind: 'version' | 'quote', sub: string, paths: string[]) {
+  if (paths?.length) assertUnlocked(store, inquiry.projectId) // 锁定的项目不再往里放文件
   const p = store.projects.find((x) => x.id === inquiry.projectId)
   let base: string
   if (p?.rootPath && fs.existsSync(p.rootPath)) {
