@@ -3,7 +3,7 @@ import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { Store } from './store'
 import { registerIpc } from './ipc'
-import { migrateCompanyFiles, repairInquiryPaths } from './procure'
+import { migrateCompanyFiles, organizeQuoteFiles, repairInquiryPaths } from './procure'
 import { mediaAbs } from './memo'
 
 // lf://file/?p=<绝对路径>：让界面能显示本地图片、PDF、视频
@@ -94,6 +94,11 @@ app.whenReady().then(() => {
   store = new Store()
   try {
     repairInquiryPaths(store)
+  } catch (e) {
+    console.error(e)
+  }
+  try {
+    organizeQuoteFiles(store) // 回价文件按轮次分文件夹（旧数据整理一次，之后幂等）
   } catch (e) {
     console.error(e)
   }

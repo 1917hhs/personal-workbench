@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import type { Store } from './store'
 import { uniqueTarget } from './files'
-import { assertUnlocked } from './shared'
+import { assertUnlocked, retargetAbs } from './shared'
 
 // 采购（单位 / 供应商、询价、发包、回价）在主进程里的公共逻辑：界面（ipc）和 AI 助手（mcp）共用。
 
@@ -30,7 +30,7 @@ export const normName = (s: any) =>
 
 /**
  * 询价文件 / 回价文件「上传」：复制到项目文件夹里统一存放，返回复制后的路径。
- * 询价文件 → <项目>/03 询价文件/<询价名>/V<版次>；回价文件 → <项目>/04 回价与比价/<询价名>/<单位>
+ * 询价文件 → <项目>/03 询价文件/<询价名>/V<版次>；回价文件 → <项目>/04 回价与比价/<询价名>/<单位>（保存回价后再挪进「第N轮」，见 organizeQuoteFiles）
  * 项目没有关联文件夹时，放到资料库下的「询价文件 / 回价文件」。已经在目标文件夹里的文件不再复制。
  */
 export function storeInquiryFiles(store: Store, inquiry: { projectId?: string | null; name: string }, kind: 'version' | 'quote', sub: string, paths: string[]) {
@@ -240,6 +240,69 @@ export function repairInquiryPaths(store: Store) {
     for (const q of x.quotes || []) q.files = (q.files || []).map(move)
   }
   if (changed) store.save('inquiries')
+}
+
+/**
+ * 回价文件按轮次分文件夹：<回价根>/<询价>/<单位>/第N轮/文件。
+ * 新拖进来的文件先放在单位文件夹，保存回价后（以及启动时整理旧数据）挪到对应轮次；改了轮次也会跟着挪。
+ * 只挪工作台自己存放的文件（在「04 回价与比价」/资料库「回价文件」下，且就在单位文件夹或某一轮文件夹里）；
+ * 几轮共用的同一个文件、锁定项目里的文件、挪不动（被占用）的文件都不动。返回挪动的个数。
+ */
+export function organizeQuoteFiles(store: Store, inquiryIds?: string[]) {
+  const roots = [path.join(store.libraryDir, '回价文件')]
+  for (const p of store.projects) {
+    if (p.locked || !p.rootPath || !fs.existsSync(p.rootPath)) continue
+    for (const d of fs.readdirSync(p.rootPath, { withFileTypes: true })) if (d.isDirectory() && /回价/.test(d.name)) roots.push(path.join(p.rootPath, d.name))
+  }
+  const lowRoots = roots.map((r) => path.resolve(r).toLowerCase() + path.sep)
+  // 同一个文件被几条回价引用（且轮次不同）时不挪
+  const rounds = new Map<string, Set<number>>()
+  for (const x of store.inquiries)
+    for (const q of x.quotes || [])
+      for (const f of q.files || []) {
+        if (typeof f !== 'string') continue
+        const k = path.resolve(f).toLowerCase()
+        if (!rounds.has(k)) rounds.set(k, new Set())
+        rounds.get(k)!.add(Number(q.round) || 1)
+      }
+  const moves: { from: string; to: string }[] = []
+  for (const x of store.inquiries) {
+    if (inquiryIds && !inquiryIds.includes(x.id)) continue
+    const p = store.projects.find((y) => y.id === x.projectId)
+    if (p?.locked) continue
+    for (const q of x.quotes || []) {
+      const round = Number(q.round) || 1
+      for (const f of q.files || []) {
+        if (typeof f !== 'string' || !f) continue
+        const abs = path.resolve(f)
+        const low = abs.toLowerCase()
+        const ri = lowRoots.findIndex((r) => low.startsWith(r))
+        if (ri < 0 || (rounds.get(low)?.size || 0) > 1) continue
+        const segs = abs.slice(lowRoots[ri].length).split(path.sep) // [询价, 单位, (第N轮), 文件]
+        let coDir: string
+        if (segs.length === 3) coDir = path.dirname(abs)
+        else if (segs.length === 4 && /^第\d+轮$/.test(segs[2])) coDir = path.dirname(path.dirname(abs))
+        else continue
+        const dir = path.join(coDir, `第${round}轮`)
+        if (path.dirname(abs).toLowerCase() === dir.toLowerCase()) continue
+        try {
+          if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) continue
+          fs.mkdirSync(dir, { recursive: true })
+          const to = uniqueTarget(dir, path.basename(abs))
+          fs.renameSync(abs, to)
+          moves.push({ from: abs, to })
+          // 原来的轮次文件夹空了就删掉
+          const old = path.dirname(abs)
+          if (/^第\d+轮$/.test(path.basename(old)) && !fs.readdirSync(old).length) fs.rmdirSync(old)
+        } catch (e) {
+          console.error('按轮次整理回价文件失败', abs, e)
+        }
+      }
+    }
+  }
+  // 询价、成本、项目引用、待办里记的路径一起改
+  for (const m of moves) retargetAbs(store, m.from, m.to)
+  return moves.length
 }
 
 /** 折合 USD：币种是 USD 直接用；填了汇率（1 单位币种 = 多少 USD）就换算 */

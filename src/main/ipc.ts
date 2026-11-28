@@ -5,7 +5,7 @@ import chokidar from 'chokidar'
 import * as XLSX from 'xlsx'
 import type { Kind, Store } from './store'
 import { importPaths, previewData, safeJoin } from './files'
-import { clean as cleanName, storeCompanyFiles, storeInquiryFiles, trashInquiryFiles } from './procure'
+import { clean as cleanName, organizeQuoteFiles, storeCompanyFiles, storeInquiryFiles, trashInquiryFiles } from './procure'
 import { ASR_MODELS, asrStatus, cancelDownload, defaultAsrRoot, downloadModel, isInstalled, moveAsrRoot, removeModel, setAsrRoot, transcribe } from './asr'
 import { applyLibraryScan, importToLibrary, libAbs, libraryTypeDir, moveLibraryDir, moveToTypeDir, renameLibraryType, scanLibrary } from './library'
 import { listHistory, listPages, purgePage, readVersion, savePage } from './kb'
@@ -450,6 +450,7 @@ export function registerIpc(store: Store, getWin: () => BrowserWindow | null) {
       if (!x?.id) throw new Error('数据缺少 id，没有保存')
       upsert(store[kind] as any[], x)
       store.save(kind)
+      if (kind === 'inquiries') organizeQuoteFiles(store, [x.id]) // 回价文件挪到「第N轮」文件夹
       // 界面可能只传改动的字段，按合并后的记录来判断
       const merged = (store[kind] as any[]).find((y) => y.id === x.id)
       if (kind === 'companies' && merged?.name && store.contacts.some((c) => c.companyId === x.id && c.org !== merged.name)) {

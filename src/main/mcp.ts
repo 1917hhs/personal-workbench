@@ -14,7 +14,7 @@ import { refsWarning, renameProjectRefs } from './memo'
 import { flowSteps, flowText } from './flow'
 import { importToLibrary, libAbs } from './library'
 import { getProfile, profileMarkdown, revertChange, saveSection } from './profile'
-import { afterQuote, companyStats, INQ_STATUS, latestQuotes, normName, QUOTE_FIELDS, SEND_STATUS, storeInquiryFiles, TAX, toUsd, validToFrom } from './procure'
+import { afterQuote, companyStats, INQ_STATUS, latestQuotes, normName, organizeQuoteFiles, QUOTE_FIELDS, SEND_STATUS, storeInquiryFiles, TAX, toUsd, validToFrom } from './procure'
 import PROCUREMENT_GUIDE from '../../docs/AI-采购录入指南.md?raw'
 
 // 让 WorkBuddy、Codex、Claude、Cursor、Cherry Studio 等支持 MCP 的 AI 助手直接使用个人工作台。
@@ -987,7 +987,7 @@ function tools(store: Store): Tool[] {
       name: 'add_quote',
       write: true,
       description:
-        '记录一家单位的回价（录入前先读 get_procurement_guide）。amount 填不含税净价；不含税时用 taxRate（如土耳其 KDV 20）和 amountWithTax（含税总价）。有效期写成天数时用 validDays + validDaysType，自动算出 validTo。files 是回价原件的绝对路径，会复制到项目文件夹「04 回价与比价/<询价名>/<单位名>」。没有发包记录时自动补一条，对应发包改为「已回价」，全部回齐后询价改为「比价中」。同一家同一日期同一金额的报价已录过时不会重复录。有疑点（大小写金额不符、抬头客户不是我方、条款与别家雷同等）照常录入，verify 填「待核实」、issues 写明。',
+        '记录一家单位的回价（录入前先读 get_procurement_guide）。amount 填不含税净价；不含税时用 taxRate（如土耳其 KDV 20）和 amountWithTax（含税总价）。有效期写成天数时用 validDays + validDaysType，自动算出 validTo。files 是回价原件的绝对路径，会复制到项目文件夹「04 回价与比价/<询价名>/<单位名>/第N轮」，一轮可附多个文件，新一轮的文件不要并进上一轮的回价记录。没有发包记录时自动补一条，对应发包改为「已回价」，全部回齐后询价改为「比价中」。同一家同一日期同一金额的报价已录过时不会重复录。有疑点（大小写金额不符、抬头客户不是我方、条款与别家雷同等）照常录入，verify 填「待核实」、issues 写明。',
       inputSchema: obj(quoteSchema(true), ['inquiryId', 'companyId', 'amount']),
       run: (a) => mutateInquiry(a.inquiryId, 'add_quote', (x) => {
         const co = store.companies.find((c) => c.id === a.companyId)
@@ -1095,6 +1095,7 @@ function tools(store: Store): Tool[] {
     const summary = fn(x)
     store.inquiries[i] = x
     store.save('inquiries')
+    if (tool === 'add_quote' || tool === 'update_quote') organizeQuoteFiles(store, [id]) // 回价文件挪到「第N轮」文件夹
     record(store, tool, summary, () => {
       store.inquiries = store.inquiries.map((y) => (y.id === before.id ? before : y))
       store.save('inquiries')
